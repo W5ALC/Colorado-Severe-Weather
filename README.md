@@ -79,12 +79,14 @@ python3 Colorado-SWN.py
 
 Screenshots of the toolkit in action:
 
-- Main Menu: `CSWN.png`
-- GOES Viewer: `CSWN-GOES-load.png`
-- SPC Browser: `CSWN-SPC-Browser.png`
-- AFD Tool: `CSWN-AFD.png`
-- HWO Tool: `CSWN-HWO.png`
-- Additional Views: `CSWN-GEOS.png`, `CSWN-SPC-1.png`, `CSWN-SPC.png`
+![Main Menu](CSWN.png)
+![GOES Viewer](CSWN-GEOS.png)
+![SPC Browser](CSWN-SPC-Browser.png)
+![AFD Tool](CSWN-AFD.png)
+![HWO Tool](CSWN-HWO.png)
+![Additional View - GEOS](CSWN-GOES-load.png)
+![Additional View - SPC 1](CSWN-SPC-1.png)
+![Additional View - SPC](CSWN-SPC.png)
 
 ---
 
