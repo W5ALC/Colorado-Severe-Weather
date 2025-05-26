@@ -118,7 +118,7 @@ Pull requests are welcome! If you have suggestions for improvements or new featu
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the 'Its not that serious' v1 license.
 
 ---
 
