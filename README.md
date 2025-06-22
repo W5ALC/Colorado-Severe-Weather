@@ -72,6 +72,9 @@ python3 Colorado-SWN.py
 ```
 
 > Or run the compiled executable: `Colorado-SWN.exe` (Windows)
+>  I created a newer version of the Colorado-SWN.exe with PyQT6
+> it is ~38MB so i have to host on google drive
+> https://drive.google.com/file/d/18TenJhN8CxzOAmQBtANBBh8M088wkKqk/view?usp=sharing
 
 ---
 
