@@ -4,26 +4,43 @@ import webbrowser
 import json
 import os
 import requests
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QGridLayout, QGroupBox, QMessageBox, QTextEdit, QFileDialog, QLineEdit, QMenu, QMenuBar, 
     QInputDialog, QComboBox, QDialog, QSpinBox, QSizePolicy, QScrollArea, QFrame, QSplitter,
     QTabWidget, QProgressBar, QToolBar, QStatusBar
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, QSettings, QPropertyAnimation, QEasingCurve, QRect
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, QSettings, QPropertyAnimation, QEasingCurve, QRect, QUrl
 from PyQt6.QtGui import QFont, QAction, QIcon, QPixmap, QPalette, QColor, QPainter, QLinearGradient, QBrush
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEngineSettings
+
 from io import BytesIO
 
 try:
     from bs4 import BeautifulSoup
     import xml.etree.ElementTree as ET
     from PIL import Image, ImageQt
-except Exception as e:
-    print(f"Import error: {e.__class__.__name__}: {e}")
-    sys.exit(1)
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEngineSettings
+    WEBENGINE_AVAILABLE = True
+except ImportError as e:
+    print(f"WebEngine not available: {e}")
+    WEBENGINE_AVAILABLE = False
+    try:
+        from bs4 import BeautifulSoup
+        import xml.etree.ElementTree as ET
+        from PIL import Image, ImageQt
+    except Exception as e:
+        print(f"Import error: {e.__class__.__name__}: {e}")
+        sys.exit(1)
+
 
 CONFIG_FILE = os.path.expanduser("~/.weather_toolkit_config.json")
 ERROR_LOG = os.path.expanduser("~/.weather_toolkit_error.log")
+
+# python -m pip install PyQt6 requests beautifulsoup4 pillow
 
 APP_TITLE = "Colorado Severe Weather Network Toolkit"
 APP_AUTHOR = "W5ALC"
@@ -187,7 +204,7 @@ resources = {
     },
     "📻 Skywarn and Amateur Radio": {
         "Skywarn Spotter's Field Guide": "https://www.weather.gov/spotterguide/",
-        "Skywarn Spotter Checklist": "https://www.weather.gov/gjt/spotterchecklist",
+        "Skywarn Spotter Checklist": "https://www.weather.gov/images/gjt/spotter/Reporting_Checklist.png",
         "Skywarn National Page": "https://www.weather.gov/skywarn/",
         "Skywarn Online Training": "https://learn.meted.ucar.edu/#/curricula/0302af65-dcad-4841-87a8-77014473fe29",
         "Colorado ARES": "https://www.coloradoares.org/",
@@ -561,6 +578,192 @@ class ImagePopup(QDialog):
             log_error(f"Image load error: {e}")
             self.status.setText("❌ Failed to load satellite image")
 
+
+
+class SpotterImagePopup(QDialog):
+    def __init__(self, parent, url, theme, font_size):
+        super().__init__(parent)
+        self.setWindowTitle("📋 Skywarn Spotter Checklist")
+
+        # Don't set a fixed minimum size - let it size to content
+        # self.setMinimumSize(800, 1200)  # Remove this line
+
+        QTimer.singleShot(50, lambda: self.move(50, 50))
+
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: {theme['bg']};
+                color: {theme['fg']};
+            }}
+            QLabel {{
+                color: {theme['accent']};
+                font-weight: 600;
+                padding: 10px;
+            }}
+            QPushButton {{
+                background: {theme['button_bg']};
+                color: {theme['button_fg']};
+                border: 2px solid {theme['group_border']};
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-weight: 600;
+                margin: 5px;
+            }}
+            QPushButton:hover {{
+                background: {theme['button_hover']};
+                border-color: {theme['accent']};
+            }}
+        """)
+
+        layout = QVBoxLayout()
+
+        self.status = QLabel("🔄 Loading spotter checklist...")
+        layout.addWidget(self.status)
+
+        # Create scroll area for the image
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.img_label = QLabel()
+        self.img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.img_label.setStyleSheet(f"border: 2px solid {theme['group_border']}; border-radius: 8px;")
+        self.img_label.setScaledContents(False)  # Don't force scaling
+
+        scroll_area.setWidget(self.img_label)
+        layout.addWidget(scroll_area, 1)
+
+        btn_close = QPushButton("❌ Close")
+        btn_close.clicked.connect(self.close)
+        layout.addWidget(btn_close)
+
+        self.setLayout(layout)
+        QTimer.singleShot(100, lambda: self.load_spotter_image(url))
+
+    def load_spotter_image(self, url):
+        try:
+            resp = requests.get(url, timeout=15)
+            img = Image.open(BytesIO(resp.content))
+            qt_img = ImageQt.ImageQt(img)
+            pix = QPixmap.fromImage(qt_img)
+
+            # Get the original image size
+            original_size = pix.size()
+
+            # Set the pixmap at original size (no scaling)
+            self.img_label.setPixmap(pix)
+
+            # Resize the dialog to fit the image plus some padding for UI elements
+            # But limit it to reasonable screen dimensions
+            max_width = 1000   # Adjust as needed
+            max_height = 800   # Adjust as needed
+
+            dialog_width = min(original_size.width() + 50, max_width)
+            dialog_height = min(original_size.height() + 150, max_height)  # Extra for status and button
+
+            self.resize(dialog_width, dialog_height)
+
+            QTimer.singleShot(50, lambda: self.move(50, 50))
+
+            self.status.setText("✅ Spotter checklist loaded successfully")
+        except Exception as e:
+            log_error(f"Image load error: {e}")
+            self.status.setText("❌ Failed to load spotter checklist image")
+
+class WebViewPopup(QDialog):
+    def __init__(self, parent, url, title, theme, font_size):
+        super().__init__(parent)
+        self.setWindowTitle(f"🌐 {title}")
+        self.setMinimumSize(1200, 800)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: {theme['bg']};
+                color: {theme['fg']};
+            }}
+            QPushButton {{
+                background: {theme['button_bg']};
+                color: {theme['button_fg']};
+                border: 2px solid {theme['group_border']};
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-weight: 600;
+                margin: 5px;
+            }}
+            QPushButton:hover {{
+                background: {theme['button_hover']};
+                border-color: {theme['accent']};
+            }}
+            QLabel {{
+                color: {theme['accent']};
+                font-weight: 600;
+                padding: 5px;
+            }}
+        """)
+
+        layout = QVBoxLayout()
+
+        # Status and controls
+        controls = QHBoxLayout()
+        self.status = QLabel(f"🔄 Loading {title}...")
+        controls.addWidget(self.status)
+
+        # Navigation buttons
+        btn_back = QPushButton("⬅️ Back")
+        btn_forward = QPushButton("➡️ Forward")
+        btn_refresh = QPushButton("🔄 Refresh")
+        btn_external = QPushButton("🌐 Open External")
+        btn_close = QPushButton("❌ Close")
+
+        controls.addStretch()
+        controls.addWidget(btn_back)
+        controls.addWidget(btn_forward)
+        controls.addWidget(btn_refresh)
+        controls.addWidget(btn_external)
+        controls.addWidget(btn_close)
+
+        layout.addLayout(controls)
+
+        # Web view
+        self.web_view = QWebEngineView()
+        self.web_view.setUrl(QUrl(url))
+
+        # Configure web engine settings
+        settings = self.web_view.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+
+        # Connect signals
+        self.web_view.loadStarted.connect(lambda: self.status.setText("🔄 Loading..."))
+        self.web_view.loadFinished.connect(self.on_load_finished)
+        self.web_view.loadProgress.connect(self.on_load_progress)
+
+        # Button connections
+        btn_back.clicked.connect(self.web_view.back)
+        btn_forward.clicked.connect(self.web_view.forward)
+        btn_refresh.clicked.connect(self.web_view.reload)
+        btn_external.clicked.connect(lambda: webbrowser.open(url))
+        btn_close.clicked.connect(self.close)
+
+        layout.addWidget(self.web_view, 1)
+        self.setLayout(layout)
+
+        # Store original URL for external button
+        self.original_url = url
+
+    def on_load_finished(self, success):
+        if success:
+            self.status.setText("✅ Page loaded successfully")
+        else:
+            self.status.setText("❌ Failed to load page")
+
+    def on_load_progress(self, progress):
+        self.status.setText(f"🔄 Loading... {progress}%")
+
+
 class AlertFetcher(QThread):
     alerts_loaded = pyqtSignal(str)
     progress_updated = pyqtSignal(int)
@@ -744,6 +947,17 @@ class WeatherToolkit(QMainWindow):
         # Status bar
         self.statusBar().showMessage(f"Ready - {APP_AUTHOR} ({AUTHOR_EMAIL})")
 
+    def show_web_popup(self, url, title):
+        if not WEBENGINE_AVAILABLE:
+            QMessageBox.information(self, "WebEngine Not Available",
+                "PyQtWebEngine is not installed. Opening in external browser instead.\n\n"
+                "To install: pip install PyQtWebEngine")
+            webbrowser.open(url)
+            return
+
+        popup = WebViewPopup(self, url, title, self.current_theme, self.config["font_size"])
+        popup.exec()
+
     def load_section(self, section_name):
         # Clear right panel
         for i in reversed(range(self.right_layout.count())):
@@ -768,7 +982,6 @@ class WeatherToolkit(QMainWindow):
             # Button layout
             btn_layout = QHBoxLayout()
             
-
             # Special handling for different content types
             if any(x in url for x in ["HWO", "AFD", "product.php"]):
                 view_btn = ModernButton("📄 View Text")
@@ -778,11 +991,19 @@ class WeatherToolkit(QMainWindow):
                 view_btn = ModernButton("🛰️ View Image")
                 view_btn.clicked.connect(lambda checked, u=url: self.show_image_popup(u))
                 btn_layout.addWidget(view_btn)
+            elif "spotter" in url and url.endswith(".png"):
+                view_btn = ModernButton("🛰️ View Image")
+                view_btn.clicked.connect(lambda checked, u=url: self.show_spotter_image_popup(u))
+                btn_layout.addWidget(view_btn)
             
+            web_btn = ModernButton("🖥️ View in App")
+            web_btn.clicked.connect(lambda checked, u=url, n=link_name: self.show_web_popup(u, n))
+            btn_layout.addWidget(web_btn)
+
             # Open in browser button
-            open_btn = ModernButton("🌐 Open in Browser")
-            open_btn.clicked.connect(lambda checked, u=url: webbrowser.open(u))
-            btn_layout.addWidget(open_btn)
+            # open_btn = ModernButton("🌐 Open in Browser")
+            # open_btn.clicked.connect(lambda checked, u=url: webbrowser.open(u))
+            # btn_layout.addWidget(open_btn)
 
             link_layout.addLayout(btn_layout)
             
@@ -823,6 +1044,10 @@ class WeatherToolkit(QMainWindow):
 
     def show_image_popup(self, url):
         popup = ImagePopup(self, url, self.current_theme, self.config["font_size"])
+        popup.exec()
+
+    def show_spotter_image_popup(self, url):
+        popup = SpotterImagePopup(self, url, self.current_theme, self.config["font_size"])
         popup.exec()
 
     def show_alerts(self):
