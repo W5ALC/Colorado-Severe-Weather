@@ -1,0 +1,453 @@
+name: Build and Release CSWN Toolkit
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.11'
+  APP_NAME: 'CSWN-Toolkit'
+  
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+            
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov flake8 pylint
+          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow lxml
+          
+      - name: Lint with flake8
+        run: |
+          # Stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Exit-zero treats all errors as warnings
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+          
+      - name: Basic import test
+        run: |
+          python -c "
+          import sys
+          sys.path.append('.')
+          try:
+              # Test basic imports without GUI
+              import requests
+              import json
+              import os
+              from bs4 import BeautifulSoup
+              import xml.etree.ElementTree as ET
+              from PIL import Image
+              print('✅ All imports successful')
+          except Exception as e:
+              print(f'❌ Import failed: {e}')
+              sys.exit(1)
+          "
+
+  build:
+    name: Build ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            executable_suffix: ''
+            artifact_name: 'linux-x64'
+          - os: macos-latest
+            platform: macos
+            arch: x64
+            executable_suffix: ''
+            artifact_name: 'macos-x64'
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            executable_suffix: '.exe'
+            artifact_name: 'windows-x64'
+            
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+            ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+            
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1-mesa \
+            libxkbcommon-x11-0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0 \
+            libxcb-shape0 \
+            libglib2.0-0 \
+            libgl1-mesa-glx \
+            libasound2-dev \
+            libfontconfig1 \
+            libxrender1 \
+            libxi6 \
+            libxext6 \
+            libx11-xcb1
+            
+      - name: Install system dependencies (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          # Install any needed system dependencies for macOS
+          brew install --quiet python-tk || true
+          
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow lxml
+          pip install pyinstaller
+          
+      - name: Create requirements.txt
+        run: |
+          echo "PyQt6>=6.5.0" > requirements.txt
+          echo "PyQtWebEngine>=6.5.0" >> requirements.txt
+          echo "requests>=2.31.0" >> requirements.txt
+          echo "beautifulsoup4>=4.12.0" >> requirements.txt
+          echo "Pillow>=10.0.0" >> requirements.txt
+          echo "lxml>=4.9.0" >> requirements.txt
+          
+      - name: Create PyInstaller spec file
+        run: |
+          cat > cswn-toolkit.spec << 'EOF'
+          # -*- mode: python ; coding: utf-8 -*-
+          import sys
+          from PyInstaller.utils.hooks import collect_all
+          
+          block_cipher = None
+          
+          # Collect all data files and hidden imports
+          datas = []
+          hiddenimports = [
+              'PyQt6.QtCore',
+              'PyQt6.QtGui', 
+              'PyQt6.QtWidgets',
+              'PyQt6.QtWebEngineWidgets',
+              'PyQt6.QtWebEngineCore',
+              'requests',
+              'beautifulsoup4',
+              'bs4',
+              'PIL',
+              'PIL.Image',
+              'PIL.ImageQt',
+              'xml.etree.ElementTree',
+              'json',
+              'os',
+              'sys',
+              'webbrowser',
+              'io'
+          ]
+          
+          # Collect PyQt6 data
+          qt_data, qt_hidden = collect_all('PyQt6')
+          datas.extend(qt_data)
+          hiddenimports.extend(qt_hidden)
+          
+          a = Analysis(
+              ['paste.txt'],
+              pathex=[],
+              binaries=[],
+              datas=datas,
+              hiddenimports=hiddenimports,
+              hookspath=[],
+              hooksconfig={},
+              runtime_hooks=[],
+              excludes=[],
+              win_no_prefer_redirects=False,
+              win_private_assemblies=False,
+              cipher=block_cipher,
+              noarchive=False,
+          )
+          
+          pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+          
+          exe = EXE(
+              pyz,
+              a.scripts,
+              a.binaries,
+              a.zipfiles,
+              a.datas,
+              [],
+              name='CSWN-Toolkit',
+              debug=False,
+              bootloader_ignore_signals=False,
+              strip=False,
+              upx=True,
+              upx_exclude=[],
+              runtime_tmpdir=None,
+              console=False,
+              disable_windowed_traceback=False,
+              argv_emulation=False,
+              target_arch=None,
+              codesign_identity=None,
+              entitlements_file=None,
+              icon=None
+          )
+          
+          # macOS app bundle
+          if sys.platform == 'darwin':
+              app = BUNDLE(
+                  exe,
+                  name='CSWN-Toolkit.app',
+                  icon=None,
+                  bundle_identifier='com.w5alc.cswn-toolkit',
+                  info_plist={
+                      'CFBundleDisplayName': 'Colorado Severe Weather Network Toolkit',
+                      'CFBundleVersion': '2.1',
+                      'CFBundleShortVersionString': '2.1',
+                      'NSHighResolutionCapable': True,
+                  }
+              )
+          EOF
+          
+      - name: Rename main script
+        run: |
+          cp paste.txt CSWN-toolkit.py
+          # Make sure the script is executable on Unix systems
+          chmod +x CSWN-toolkit.py || true
+          
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller cswn-toolkit.spec --clean --noconfirm
+          ls -la dist/
+          
+      - name: Test executable (Linux/macOS)
+        if: matrix.platform != 'windows'
+        run: |
+          # Test that the executable was created and can show help
+          if [ -f "dist/CSWN-Toolkit" ]; then
+            echo "✅ Executable created successfully"
+            file dist/CSWN-Toolkit
+          else
+            echo "❌ Executable not found"
+            exit 1
+          fi
+          
+      - name: Test executable (Windows)  
+        if: matrix.platform == 'windows'
+        run: |
+          if (Test-Path "dist/CSWN-Toolkit.exe") {
+            Write-Host "✅ Executable created successfully"
+            Get-ItemProperty "dist/CSWN-Toolkit.exe" | Select-Object Name, Length, LastWriteTime
+          } else {
+            Write-Host "❌ Executable not found"
+            exit 1
+          }
+          
+      - name: Create portable package (Linux/macOS)
+        if: matrix.platform != 'windows'
+        run: |
+          mkdir -p package
+          if [ "${{ matrix.platform }}" == "macos" ] && [ -d "dist/CSWN-Toolkit.app" ]; then
+            # macOS app bundle
+            cp -r dist/CSWN-Toolkit.app package/
+            cd package
+            tar -czf "../${{ env.APP_NAME }}-${{ matrix.artifact_name }}.tar.gz" CSWN-Toolkit.app
+          else
+            # Linux executable
+            cp dist/CSWN-Toolkit package/
+            cp requirements.txt package/
+            echo "#!/bin/bash" > package/run.sh
+            echo "cd \"\$(dirname \"\$0\")\"" >> package/run.sh  
+            echo "./CSWN-Toolkit" >> package/run.sh
+            chmod +x package/run.sh
+            cd package
+            tar -czf "../${{ env.APP_NAME }}-${{ matrix.artifact_name }}.tar.gz" *
+          fi
+          
+      - name: Create portable package (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          New-Item -ItemType Directory -Path "package" -Force
+          Copy-Item "dist/CSWN-Toolkit.exe" -Destination "package/"
+          Copy-Item "requirements.txt" -Destination "package/"
+          
+          # Create batch file to run the application
+          @"
+          @echo off
+          cd /d "%~dp0"
+          CSWN-Toolkit.exe
+          pause
+          "@ | Out-File -FilePath "package/run.bat" -Encoding ascii
+          
+          # Create zip archive
+          Compress-Archive -Path "package/*" -DestinationPath "${{ env.APP_NAME }}-${{ matrix.artifact_name }}.zip" -Force
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.APP_NAME }}-${{ matrix.artifact_name }}
+          path: |
+            ${{ env.APP_NAME }}-${{ matrix.artifact_name }}.tar.gz
+            ${{ env.APP_NAME }}-${{ matrix.artifact_name }}.zip
+          retention-days: 30
+
+  create-release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.create_release == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+          
+      - name: Display artifact structure
+        run: |
+          ls -la artifacts/
+          find artifacts/ -type f -name "*" | head -20
+          
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name || 'manual-release' }}
+          release_name: 'CSWN Toolkit ${{ github.ref_name || github.sha }}'
+          body: |
+            # Colorado Severe Weather Network Toolkit
+            
+            ## 🌪️ Release Notes
+            
+            ### Features
+            - Comprehensive Colorado weather monitoring toolkit
+            - Multi-platform support (Windows, macOS, Linux)
+            - Integrated web browser with PyQtWebEngine
+            - NWS product viewers and alerts
+            - Radar and satellite imagery access
+            - Skywarn and amateur radio resources
+            
+            ### Downloads
+            - **Windows**: Download the `-windows-x64.zip` file
+            - **macOS**: Download the `-macos-x64.tar.gz` file  
+            - **Linux**: Download the `-linux-x64.tar.gz` file
+            
+            ### Installation
+            1. Download the appropriate package for your operating system
+            2. Extract the archive
+            3. Run the executable:
+               - Windows: Double-click `CSWN-Toolkit.exe` or run `run.bat`
+               - macOS: Open `CSWN-Toolkit.app`
+               - Linux: Run `./CSWN-Toolkit` or `./run.sh`
+            
+            ### System Requirements
+            - Python 3.11+ (bundled in standalone executables)
+            - Internet connection for weather data
+            - 500MB+ available disk space
+            
+            ### Author
+            **W5ALC** - Jon.W5ALC@gmail.com
+            
+            ---
+            Built with GitHub Actions on ${{ github.sha }}
+          draft: false
+          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          
+      - name: Upload Linux Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/${{ env.APP_NAME }}-linux-x64/${{ env.APP_NAME }}-linux-x64.tar.gz
+          asset_name: ${{ env.APP_NAME }}-linux-x64.tar.gz
+          asset_content_type: application/gzip
+          
+      - name: Upload macOS Release Asset  
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/${{ env.APP_NAME }}-macos-x64/${{ env.APP_NAME }}-macos-x64.tar.gz
+          asset_name: ${{ env.APP_NAME }}-macos-x64.tar.gz
+          asset_content_type: application/gzip
+          
+      - name: Upload Windows Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/${{ env.APP_NAME }}-windows-x64/${{ env.APP_NAME }}-windows-x64.zip
+          asset_name: ${{ env.APP_NAME }}-windows-x64.zip  
+          asset_content_type: application/zip
+
+  notify:
+    name: Notify Success
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Notify build status
+        run: |
+          if [ "${{ needs.test.result }}" == "success" ] && [ "${{ needs.build.result }}" == "success" ]; then
+            echo "✅ All builds completed successfully!"
+            echo "🎉 CSWN Toolkit is ready for all platforms"
+          else
+            echo "❌ Some builds failed"
+            echo "Test result: ${{ needs.test.result }}"
+            echo "Build result: ${{ needs.build.result }}"
+            exit 1
+          fi
