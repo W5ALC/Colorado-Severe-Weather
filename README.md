@@ -1,7 +1,7 @@
 
 # Colorado Severe Weather Network Toolkit
 
-![CSWN Interface](CSWN.png)
+![CSWN Interface](https://github.com/W5ALC/Pictures/blob/main/toolkit.png)
 
 ## 🌀 Overview
 
@@ -57,7 +57,7 @@
 ### Prerequisites
 
 - Python 3.x  
-- `tkinter` (usually preinstalled with Python)
+- `PyQT6`
 - `requests`
 - `beautifulsoup4`
 - `pillow`
@@ -66,15 +66,13 @@
 ### Installation (Source Code)
 
 ```bash
-git clone https://github.com/<your-username>/Colorado-Severe-Weather.git
+git clone https://github.com/W5ALC/Colorado-Severe-Weather.git
 cd Colorado-Severe-Weather
-python3 Colorado-SWN.py
+python3 CSWN-toolkit.py
 ```
 
-> Or run the compiled executable: `Colorado-SWN.exe` (Windows)
->  I created a newer version of the Colorado-SWN.exe with PyQT6
-> it is ~38MB so i have to host on google drive
-> https://drive.google.com/file/d/18TenJhN8CxzOAmQBtANBBh8M088wkKqk/view?usp=sharing
+> Or run the compiled executable: `CSWN-toolkit.exe` (Windows)
+> [Github Release](https://github.com/W5ALC/Colorado-Severe-Weather/releases/download/exe.1/CSWN-toolkit.exe)
 
 ---
 
@@ -82,14 +80,15 @@ python3 Colorado-SWN.py
 
 Screenshots of the toolkit in action:
 
-![Main Menu](CSWN.png)
-![GOES Viewer](CSWN-GEOS.png)
-![SPC Browser](CSWN-SPC-Browser.png)
-![AFD Tool](CSWN-AFD.png)
-![HWO Tool](CSWN-HWO.png)
-![Additional View - GEOS](CSWN-GOES-load.png)
-![Additional View - SPC 1](CSWN-SPC-1.png)
-![Additional View - SPC](CSWN-SPC.png)
+![Main Menu](https://github.com/W5ALC/Pictures/blob/main/toolkit.png))
+![Actice Alerts](https://github.com/W5ALC/Pictures/blob/main/active-alert.png)
+![GOES Viewer](GOES-19-zoom.png)
+![SPC Mesoscale Discussions](https://github.com/W5ALC/Pictures/blob/main/mesoscale-discussions.png))
+![AFD Tool](https://github.com/W5ALC/Pictures/blob/main/afd.png)
+![HWO Tool](https://github.com/W5ALC/Pictures/blob/main/hwo.png)
+![Additional View - GEOS](https://github.com/W5ALC/Pictures/blob/main/goes19.png)
+![Additional View - NWS Radar](https://github.com/W5ALC/Pictures/blob/main/nws-radar.png)
+![Additional View - Excessive Rainfall](https://github.com/W5ALC/Pictures/blob/main/excessive-rainfall.png)
 
 ---
 
