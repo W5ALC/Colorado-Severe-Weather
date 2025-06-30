@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller beautifulsoup4 pillow requests PyQt6
+          pip install pyinstaller beautifulsoup4 pillow requests PyQt6 PyQt6-WebEngine
           # Optional: install other requirements
           # pip install -r requirements.txt
 
