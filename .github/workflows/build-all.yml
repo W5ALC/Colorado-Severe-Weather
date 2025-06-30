@@ -146,7 +146,7 @@ jobs:
             --hidden-import PIL \
             --hidden-import xml.etree.ElementTree \
             --name "${APP_NAME}-linux-${{ matrix.arch }}" \
-            main.py
+            CSWN-toolkit.py
 
       - name: 📱 Create AppImage (x86_64 only)
         if: matrix.arch == 'x86_64'
@@ -277,7 +277,7 @@ jobs:
             --osx-bundle-identifier "com.w5alc.cswn-toolkit" \
             --target-arch ${{ matrix.arch }} \
             --name "${APP_NAME}-macos-${{ matrix.arch }}" \
-            main.py
+            CSWN-toolkit.py
 
       - name: 📱 Create macOS App Bundle
         run: |
@@ -415,7 +415,7 @@ jobs:
             --hidden-import PIL `
             --icon app.ico `
             --name "${env:APP_NAME}-windows-${{ matrix.arch }}" `
-            main.py
+            CSWN-toolkit.py
 
       - name: 📱 Create Windows Installer (NSIS)
         run: |
