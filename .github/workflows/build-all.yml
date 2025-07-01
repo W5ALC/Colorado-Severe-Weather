@@ -150,8 +150,6 @@ jobs:
           pyinstaller --noconfirm \
             --onefile \
             --windowed \
-            --add-data "*.txt:." \
-            --add-data "*.md:." \
             --hidden-import PyQt6.QtCore \
             --hidden-import PyQt6.QtWidgets \
             --hidden-import PyQt6.QtGui \
@@ -291,8 +289,6 @@ jobs:
           pyinstaller --noconfirm \
             --onefile \
             --windowed \
-            --add-data "*.txt:." \
-            --add-data "*.md:." \
             --hidden-import PyQt6.QtCore \
             --hidden-import PyQt6.QtWidgets \
             --hidden-import PyQt6.QtGui \
@@ -438,8 +434,6 @@ jobs:
           pyinstaller --noconfirm `
             --onefile `
             --windowed `
-            --add-data "*.txt;." `
-            --add-data "*.md;." `
             --hidden-import PyQt6.QtCore `
             --hidden-import PyQt6.QtWidgets `
             --hidden-import PyQt6.QtGui `
