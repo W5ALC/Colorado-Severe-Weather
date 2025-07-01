@@ -78,7 +78,7 @@ jobs:
   # ============================================================================
   build-linux:
     name: 🐧 Build Linux
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: quality-checks
     strategy:
       matrix:
@@ -378,7 +378,7 @@ jobs:
     needs: quality-checks
     strategy:
       matrix:
-        arch: [x64, x86]
+        arch: [x64]
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -407,7 +407,6 @@ jobs:
             --hidden-import PyQt6.QtWebEngineWidgets `
             --hidden-import PyQt6.QtWebEngineCore `
             --hidden-import PyQt6.QtWebEngine `
-            --icon app.ico `
             --name "${env:APP_NAME}-windows-${{ matrix.arch }}" `
             CSWN-toolkit.py
 
@@ -508,7 +507,7 @@ jobs:
   # ============================================================================
   create-release:
     name: 🚀 Create Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [build-linux, build-macos, build-windows, build-docs]
     if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
     steps:
@@ -552,7 +551,7 @@ jobs:
   # ============================================================================
   notify-deployment:
     name: 📢 Deployment Notification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [create-release]
     if: always() && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true')
     steps:
