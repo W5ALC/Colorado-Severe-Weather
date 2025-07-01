@@ -242,7 +242,7 @@ jobs:
         with:
           name: linux-${{ matrix.arch }}-build
           path: |
-            ${APP_NAME}-linux-${{ matrix.arch }}.tar.gz
+            ${{ env.APP_NAME }}-linux-${{ matrix.arch }}.tar.gz
           retention-days: 90
 
   # ============================================================================
@@ -385,7 +385,7 @@ jobs:
         with:
           name: macos-${{ matrix.arch }}-build
           path: |
-            ${APP_NAME}-macos-${{ matrix.arch }}.dmg
+            ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg
           retention-days: 90
 
   # ============================================================================
@@ -491,7 +491,7 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}-build
           path: |
-            ${APP_NAME}-windows-${{ matrix.arch }}-portable.zip
+            ${{ env.APP_NAME }}-windows-${{ matrix.arch }}-portable.zip
           retention-days: 90
 
   # ============================================================================
