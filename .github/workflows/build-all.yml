@@ -1,569 +1,96 @@
-name: CSWN Toolkit - Build & Release
+name: Minimal CSWN Toolkit Build & Release
 
 on:
   push:
-    branches: [ main, develop ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-    inputs:
-      create_release:
-        description: 'Create a release'
-        required: false
-        default: false
-        type: boolean
+    tags: [ 'v*' ]  # Release on version tags
 
 env:
   PYTHON_VERSION: '3.11'
   APP_NAME: 'CSWN-Toolkit'
-  APP_VERSION: '2.1'
 
 jobs:
-  # ============================================================================
-  # CODE QUALITY & TESTING
-  # ============================================================================
-  quality-checks:
-    name: 🔍 Code Quality & Security
-    runs-on: ubuntu-latest
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: 📦 Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install flake8 bandit safety black isort mypy
-          pip install -r requirements.txt || echo "No requirements.txt found"
-
-      - name: 🎨 Code Formatting Check (Black)
-        run: black --check --diff .
-        continue-on-error: true
-
-      - name: 📏 Import Sorting Check (isort)
-        run: isort --check-only --diff .
-        continue-on-error: true
-
-      - name: 🔍 Lint with Flake8
-        run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-        continue-on-error: true
-
-      - name: 🛡️ Security Analysis (Bandit)
-        run: bandit -r . -f json -o bandit-report.json
-        continue-on-error: true
-
-      - name: 🔐 Dependency Security Check (Safety)
-        run: safety check --json --output safety-report.json
-        continue-on-error: true
-
-      - name: 📊 Upload Security Reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: security-reports
-          path: |
-            bandit-report.json
-            safety-report.json
-          retention-days: 30
-
-  # ============================================================================
-  # LINUX BUILD
-  # ============================================================================
   build-linux:
-    name: 🐧 Build Linux
     runs-on: ubuntu-22.04
-    needs: quality-checks
-    strategy:
-      matrix:
-        arch: [x86_64, aarch64]
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: 🔧 Install System Dependencies
-        run: |
+      - run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            qt6-base-dev \
-            qt6-webengine-dev \
-            libgl1-mesa-dev \
-            libxkbcommon-x11-0 \
-            libxcb-cursor0 \
-            libxcb-xinerama0 \
-            libfontconfig1 \
-            libfreetype6 \
-            libx11-6 \
-            libxext6 \
-            libxfixes3 \
-            libxi6 \
-            libxrender1 \
-            libxrandr2 \
-            libxss1 \
-            libxtst6 \
-            ca-certificates \
-            fonts-liberation \
-            libappindicator3-1 \
-            libasound2 \
-            libatk-bridge2.0-0 \
-            libdrm2 \
-            libgtk-3-0 \
-            libnspr4 \
-            libnss3 \
-            libxcomposite1 \
-            libxdamage1 \
-            xdg-utils \
-            imagemagick
-
-      - name: 📦 Install Python Dependencies
-        run: |
+          sudo apt-get install -y qt6-base-dev qt6-webengine-dev
+      - run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow pyinstaller pyinstaller-hooks-contrib
-
-      - name: 🏗️ Build with PyInstaller
-        run: |
-          ADD_DATA_ARGS=""
-          for f in *.txt *.md; do
-            if [ -f "$f" ]; then
-              ADD_DATA_ARGS="$ADD_DATA_ARGS --add-data $f:."
-            fi
-          done
-          pyinstaller --noconfirm \
-            --onefile \
-            --windowed \
-            $ADD_DATA_ARGS \
+          pip install PyQt6 PyQt6-WebEngine pyinstaller pyinstaller-hooks-contrib pillow
+      - run: |
+          pyinstaller --noconfirm --onefile --windowed \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngine \
-            --hidden-import requests \
-            --hidden-import beautifulsoup4 \
-            --hidden-import PIL \
-            --name "${APP_NAME}-linux-${{ matrix.arch }}" \
-            CSWN-toolkit.py
-
-      - name: 🖼️ Copy Qt platform plugins
-        run: |
-          QT_PLUGINS_DIR=$(python -c "import PyQt6.QtCore, os; print(os.path.join(os.path.dirname(PyQt6.QtCore.__file__), 'plugins'))")
-          if [ -d "$QT_PLUGINS_DIR/platforms" ]; then
-            mkdir -p dist/platforms
-            cp -r "$QT_PLUGINS_DIR/platforms" dist/
-          fi
-
-      - name: List dist files
-        run: ls -l dist
-
-      - name: 📱 Create AppImage (x86_64 only)
-        if: matrix.arch == 'x86_64'
-        run: |
-          wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy-x86_64.AppImage
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          cp dist/${APP_NAME}-linux-${{ matrix.arch }} AppDir/usr/bin/
-          cat > AppDir/usr/share/applications/${APP_NAME}.desktop << EOF
-          [Desktop Entry]
-          Type=Application
-          Name=CSWN Toolkit
-          Comment=Colorado Severe Weather Network Toolkit
-          Exec=${APP_NAME}-linux-${{ matrix.arch }}
-          Icon=${APP_NAME}
-          Categories=Utility;Network;Weather;
-          Terminal=false
-          EOF
-          convert -size 256x256 xc:blue -fill white -gravity center \
-            -pointsize 36 -annotate +0+0 "CSWN" AppDir/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png || \
-            echo "ImageMagick not available, skipping icon creation"
-          ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage || echo "AppImage creation failed, continuing..."
-
-      - name: 🗜️ Create Compressed Archive
-        run: |
-          mkdir -p release
-          if [ -f "dist/${APP_NAME}-linux-${{ matrix.arch }}" ]; then
-            cp dist/${APP_NAME}-linux-${{ matrix.arch }} release/
-            chmod +x release/${APP_NAME}-linux-${{ matrix.arch }}
-          fi
-          if [ -f "${APP_NAME}-x86_64.AppImage" ]; then
-            cp ${APP_NAME}-x86_64.AppImage release/
-          fi
-          cat > release/README.txt << EOF
-          CSWN Toolkit v${APP_VERSION} - Linux Build
-          ==========================================
-          Installation:
-          1. Make executable: chmod +x ${APP_NAME}-linux-${{ matrix.arch }}
-          2. Run: ./${APP_NAME}-linux-${{ matrix.arch }}
-          Requirements:
-          - Qt6 libraries
-          - X11 display server
-          - Network connectivity for weather data
-          Troubleshooting:
-          - Install missing Qt6 packages if application won't start
-          - For Wayland users: export QT_QPA_PLATFORM=wayland
-          Build Info:
-          - Architecture: ${{ matrix.arch }}
-          - Python: ${{ env.PYTHON_VERSION }}
-          - Build Date: $(date)
-          - Commit: ${{ github.sha }}
-          EOF
-          tar -czf ${APP_NAME}-linux-${{ matrix.arch }}.tar.gz -C release .
-
-      - name: 📤 Upload Linux Artifacts
-        uses: actions/upload-artifact@v4
+            --name "${APP_NAME}-linux" CSWN-toolkit.py
+      - uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}-build
-          path: |
-            ${APP_NAME}-linux-${{ matrix.arch }}.tar.gz
-            *.AppImage
-          retention-days: 90
-        continue-on-error: true
+          name: linux-build
+          path: dist/${{ env.APP_NAME }}-linux
 
-  # ============================================================================
-  # MACOS BUILD
-  # ============================================================================
   build-macos:
-    name: 🍎 Build macOS
     runs-on: macos-latest
-    needs: quality-checks
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: 🔧 Install System Dependencies
-        run: |
-          brew update
-          brew install qt6 create-dmg imagemagick
-
-      - name: 📦 Install Python Dependencies
-        run: |
+      - run: brew install qt6
+      - run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow pyinstaller pyinstaller-hooks-contrib
-
-      - name: 🏗️ Build with PyInstaller
-        run: |
-          ADD_DATA_ARGS=""
-          for f in *.txt *.md; do
-            if [ -f "$f" ]; then
-              ADD_DATA_ARGS="$ADD_DATA_ARGS --add-data $f:."
-            fi
-          done
-          pyinstaller --noconfirm \
-            --onefile \
-            --windowed \
-            $ADD_DATA_ARGS \
+          pip install PyQt6 PyQt6-WebEngine pyinstaller pyinstaller-hooks-contrib pillow
+      - run: |
+          pyinstaller --noconfirm --onefile --windowed \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngine \
-            --osx-bundle-identifier "com.w5alc.cswn-toolkit" \
-            --name "${APP_NAME}-macos-${{ matrix.arch }}" \
-            CSWN-toolkit.py
-
-      - name: 🖼️ Copy Qt platform plugins
-        run: |
-          QT_PLUGINS_DIR=$(python3 -c "import PyQt6.QtCore, os; print(os.path.join(os.path.dirname(PyQt6.QtCore.__file__), 'plugins'))")
-          if [ -d "$QT_PLUGINS_DIR/platforms" ]; then
-            mkdir -p dist/platforms
-            cp -r "$QT_PLUGINS_DIR/platforms" dist/
-          fi
-
-      - name: List dist files
-        run: ls -l dist
-
-      - name: 📱 Create macOS App Bundle
-        run: |
-          mkdir -p "${APP_NAME}.app/Contents/MacOS"
-          mkdir -p "${APP_NAME}.app/Contents/Resources"
-          cp "dist/${APP_NAME}-macos-${{ matrix.arch }}" "${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
-          chmod +x "${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
-          cat > "${APP_NAME}.app/Contents/Info.plist" << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>${APP_NAME}</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.w5alc.cswn-toolkit</string>
-              <key>CFBundleName</key>
-              <string>CSWN Toolkit</string>
-              <key>CFBundleVersion</key>
-              <string>${APP_VERSION}</string>
-              <key>CFBundleShortVersionString</key>
-              <string>${APP_VERSION}</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>LSMinimumSystemVersion</key>
-              <string>10.15</string>
-              <key>NSHighResolutionCapable</key>
-              <true/>
-              <key>NSRequiresAquaSystemAppearance</key>
-              <false/>
-          </dict>
-          </plist>
-          EOF
-
-      - name: 💾 Create DMG
-        run: |
-          mkdir -p dmg_temp
-          cp -R "${APP_NAME}.app" dmg_temp/
-          ln -s /Applications dmg_temp/Applications
-          cat > dmg_temp/README.txt << EOF
-          CSWN Toolkit v${APP_VERSION} - macOS Build
-          ==========================================
-          Installation:
-          1. Drag ${APP_NAME}.app to Applications folder
-          2. Launch from Applications or Spotlight
-          Requirements:
-          - macOS 10.15 (Catalina) or later
-          - Network connectivity for weather data
-          First Launch:
-          - You may need to right-click and select "Open" for unsigned apps
-          - Go to System Preferences > Security & Privacy if blocked
-          Build Info:
-          - Architecture: ${{ matrix.arch }}
-          - Python: ${{ env.PYTHON_VERSION }}
-          - Build Date: $(date)
-          - Commit: ${{ github.sha }}
-          EOF
-          create-dmg \
-            --volname "${APP_NAME} v${APP_VERSION}" \
-            --window-pos 200 120 \
-            --window-size 800 400 \
-            --icon-size 100 \
-            --icon "${APP_NAME}.app" 200 190 \
-            --hide-extension "${APP_NAME}.app" \
-            --app-drop-link 600 185 \
-            "${APP_NAME}-macos-${{ matrix.arch }}.dmg" \
-            "dmg_temp/" || \
-          hdiutil create -volname "${APP_NAME} v${APP_VERSION}" \
-            -srcfolder "dmg_temp" \
-            -ov -format UDZO \
-            "${APP_NAME}-macos-${{ matrix.arch }}.dmg"
-
-      - name: 📤 Upload macOS Artifacts
-        uses: actions/upload-artifact@v4
+            --name "${APP_NAME}-macos" CSWN-toolkit.py
+      - uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}-build
-          path: |
-            ${APP_NAME}-macos-${{ matrix.arch }}.dmg
-            ${APP_NAME}.app
-          retention-days: 90
-        continue-on-error: true
+          name: macos-build
+          path: dist/${{ env.APP_NAME }}-macos
 
-  # ============================================================================
-  # WINDOWS BUILD
-  # ============================================================================
   build-windows:
-    name: 🪟 Build Windows
     runs-on: windows-latest
-    needs: quality-checks
-    strategy:
-      matrix:
-        arch: [x64]
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          architecture: ${{ matrix.arch }}
-
-      - name: 📦 Install Python Dependencies
-        run: |
+      - run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow pyinstaller pyinstaller-hooks-contrib
-
-      - name: 🏗️ Build with PyInstaller
-        run: |
-          $addDataArgs = ""
-          foreach ($f in Get-ChildItem -Path *.txt,*.md -ErrorAction SilentlyContinue) {
-            $addDataArgs += " --add-data `"$($f.Name);.`""
-          }
-          pyinstaller --noconfirm `
-            --onefile `
-            --windowed `
+          pip install PyQt6 PyQt6-WebEngine pyinstaller pyinstaller-hooks-contrib pillow
+      - run: |
+          pyinstaller --noconfirm --onefile --windowed `
             --hidden-import PyQt6.QtWebEngineWidgets `
             --hidden-import PyQt6.QtWebEngineCore `
             --hidden-import PyQt6.QtWebEngine `
-            --name "${env:APP_NAME}-windows-${{ matrix.arch }}" `
-            CSWN-toolkit.py $addDataArgs.Trim()
-
-      - name: 🖼️ Copy Qt platform plugins
-        run: |
-          $qtCore = python -c "import PyQt6.QtCore, os; print(os.path.join(os.path.dirname(PyQt6.QtCore.__file__), 'plugins'))"
-          if (Test-Path "$qtCore\platforms") {
-            New-Item -ItemType Directory -Force -Path "dist\platforms"
-            Copy-Item -Recurse "$qtCore\platforms" "dist\platforms"
-          }
-
-      - name: List dist files
-        run: Get-ChildItem -Path dist
-
-      - name: 📦 Create Portable Package
-        run: |
-          New-Item -ItemType Directory -Force -Path "portable"
-          Copy-Item "dist\${env:APP_NAME}-windows-${{ matrix.arch }}.exe" -Destination "portable\"
-          @"
-          @echo off
-          cd /d "%~dp0"
-          start "" "${env:APP_NAME}-windows-${{ matrix.arch }}.exe"
-          "@ | Out-File -FilePath "portable\Launch-CSWN-Toolkit.bat" -Encoding ASCII
-          @"
-          CSWN Toolkit v${env:APP_VERSION} - Windows Build
-          ==============================================
-          Portable Installation:
-          1. Extract to desired folder
-          2. Run Launch-CSWN-Toolkit.bat or the .exe directly
-          Requirements:
-          - Windows 10 or later (Windows 7/8.1 may work)
-          - .NET Framework 4.7.2 or later
-          - Network connectivity for weather data
-          Troubleshooting:
-          - If Windows Defender blocks: Right-click > Properties > Unblock
-          - For older Windows: Install Visual C++ Redistributable
-          Build Info:
-          - Architecture: ${{ matrix.arch }}
-          - Python: ${env:PYTHON_VERSION}
-          - Build Date: $(Get-Date)
-          - Commit: ${{ github.sha }}
-          "@ | Out-File -FilePath "portable\README.txt" -Encoding UTF8
-          Compress-Archive -Path "portable\*" -DestinationPath "${env:APP_NAME}-windows-${{ matrix.arch }}-portable.zip"
-
-      - name: 📤 Upload Windows Artifacts
-        uses: actions/upload-artifact@v4
+            --name "${env:APP_NAME}-windows" CSWN-toolkit.py
+      - uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.arch }}-build
-          path: |
-            ${APP_NAME}-windows-${{ matrix.arch }}-portable.zip
-          retention-days: 90
-        continue-on-error: true
+          name: windows-build
+          path: dist/${{ env:APP_NAME }}-windows.exe
 
-  # ============================================================================
-  # DOCUMENTATION BUILD
-  # ============================================================================
-  build-docs:
-    name: 📚 Build Documentation
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: 📦 Install Documentation Tools
-        run: |
-          pip install sphinx sphinx-rtd-theme myst-parser
-          pip install pydoc-markdown
-
-      - name: 📖 Generate API Documentation
-        run: |
-          mkdir -p docs/api
-          pydoc-markdown -I . -m main --render-toc > docs/api/api.md || echo "API docs generation failed"
-
-      - name: 📝 Create User Manual
-        run: |
-          mkdir -p docs
-          cat > docs/user-manual.md << 'EOF'
-          # CSWN Toolkit User Manual
-          ... (as before) ...
-          EOF
-
-      - name: 📤 Upload Documentation
-        uses: actions/upload-artifact@v4
-        with:
-          name: documentation
-          path: docs/
-          retention-days: 90
-        continue-on-error: true
-
-  # ============================================================================
-  # RELEASE CREATION
-  # ============================================================================
-  create-release:
-    name: 🚀 Create Release
+  release:
     runs-on: ubuntu-22.04
-    needs: [build-linux, build-macos, build-windows, build-docs]
-    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+    needs: [build-linux, build-macos, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 📁 Download All Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts/
-
-      - name: 📝 Generate Release Notes
-        id: release_notes
-        run: |
-          cat > RELEASE_NOTES.md << EOF
-          ... (as before) ...
-          EOF
-          echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
-          cat RELEASE_NOTES.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: 🏷️ Create Release
-        uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          name: "CSWN Toolkit v${{ env.APP_VERSION }}"
-          body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
-          draft: false
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          name: "CSWN Toolkit ${{ github.ref_name }}"
           files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.dmg
-            artifacts/**/*.zip
-            artifacts/**/*.exe
-            artifacts/**/*.AppImage
+            artifacts/linux-build/*
+            artifacts/macos-build/*
+            artifacts/windows-build/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ============================================================================
-  # DEPLOYMENT NOTIFICATION
-  # ============================================================================
-  notify-deployment:
-    name: 📢 Deployment Notification
-    runs-on: ubuntu-22.04
-    needs: [create-release]
-    if: always() && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true')
-    steps:
-      - name: 📧 Send Success Notification
-        if: needs.create-release.result == 'success'
-        run: |
-          echo "✅ CSWN Toolkit v${APP_VERSION} successfully released!"
-          echo "📦 All platform builds completed successfully"
-          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
-
-      - name: 🚨 Send Failure Notification
-        if: needs.create-release.result == 'failure'
-        run: |
-          echo "❌ CSWN Toolkit v${APP_VERSION} release failed!"
-          echo "🔍 Check the workflow logs for details"
-          echo "📞 Contact: Jon.W5ALC@gmail.com"
