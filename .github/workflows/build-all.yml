@@ -403,12 +403,12 @@ jobs:
           pyinstaller --noconfirm `
             --onefile `
             --windowed `
-            $addDataArgs `
+            
             --hidden-import PyQt6.QtWebEngineWidgets `
             --hidden-import PyQt6.QtWebEngineCore `
             --hidden-import PyQt6.QtWebEngine `
             --name "${env:APP_NAME}-windows-${{ matrix.arch }}" `
-            CSWN-toolkit.py
+            CSWN-toolkit.py $addDataArgs
 
       - name: 🖼️ Copy Qt platform plugins
         run: |
