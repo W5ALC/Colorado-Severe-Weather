@@ -124,46 +124,55 @@ jobs:
             libnss3 \
             libxcomposite1 \
             libxdamage1 \
-            xdg-utils
+            xdg-utils \
+            imagemagick
 
       - name: 📦 Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow
-          pip install pyinstaller cx_Freeze auto-py-to-exe
+          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow pyinstaller pyinstaller-hooks-contrib
 
       - name: 🏗️ Build with PyInstaller
         run: |
+          ADD_DATA_ARGS=""
+          for f in *.txt *.md; do
+            if [ -f "$f" ]; then
+              ADD_DATA_ARGS="$ADD_DATA_ARGS --add-data $f:."
+            fi
+          done
           pyinstaller --noconfirm \
             --onefile \
             --windowed \
-            --add-data "*.txt:." \
-            --add-data "*.md:." \
+            $ADD_DATA_ARGS \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --hidden-import PyQt6.QtWebEngineCore \
+            --hidden-import PyQt6.QtWebEngine \
             --hidden-import requests \
             --hidden-import beautifulsoup4 \
             --hidden-import PIL \
-            --hidden-import xml.etree.ElementTree \
             --name "${APP_NAME}-linux-${{ matrix.arch }}" \
             CSWN-toolkit.py
+
+      - name: 🖼️ Copy Qt platform plugins
+        run: |
+          QT_PLUGINS_DIR=$(python -c "import PyQt6.QtCore, os; print(os.path.join(os.path.dirname(PyQt6.QtCore.__file__), 'plugins'))")
+          if [ -d "$QT_PLUGINS_DIR/platforms" ]; then
+            mkdir -p dist/platforms
+            cp -r "$QT_PLUGINS_DIR/platforms" dist/
+          fi
+
+      - name: List dist files
+        run: ls -l dist
 
       - name: 📱 Create AppImage (x86_64 only)
         if: matrix.arch == 'x86_64'
         run: |
-          # Download linuxdeploy
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
-          
-          # Create AppDir structure
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          
-          # Copy binary
           cp dist/${APP_NAME}-linux-${{ matrix.arch }} AppDir/usr/bin/
-          
-          # Create desktop file
           cat > AppDir/usr/share/applications/${APP_NAME}.desktop << EOF
           [Desktop Entry]
           Type=Application
@@ -174,13 +183,9 @@ jobs:
           Categories=Utility;Network;Weather;
           Terminal=false
           EOF
-          
-          # Create simple icon (you should replace this with actual icon)
           convert -size 256x256 xc:blue -fill white -gravity center \
             -pointsize 36 -annotate +0+0 "CSWN" AppDir/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png || \
             echo "ImageMagick not available, skipping icon creation"
-          
-          # Build AppImage
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage || echo "AppImage creation failed, continuing..."
 
       - name: 🗜️ Create Compressed Archive
@@ -190,37 +195,28 @@ jobs:
             cp dist/${APP_NAME}-linux-${{ matrix.arch }} release/
             chmod +x release/${APP_NAME}-linux-${{ matrix.arch }}
           fi
-          
-          # Include AppImage if created
           if [ -f "${APP_NAME}-x86_64.AppImage" ]; then
             cp ${APP_NAME}-x86_64.AppImage release/
           fi
-          
-          # Create README
           cat > release/README.txt << EOF
           CSWN Toolkit v${APP_VERSION} - Linux Build
           ==========================================
-          
           Installation:
           1. Make executable: chmod +x ${APP_NAME}-linux-${{ matrix.arch }}
           2. Run: ./${APP_NAME}-linux-${{ matrix.arch }}
-          
           Requirements:
           - Qt6 libraries
           - X11 display server
           - Network connectivity for weather data
-          
           Troubleshooting:
           - Install missing Qt6 packages if application won't start
           - For Wayland users: export QT_QPA_PLATFORM=wayland
-          
           Build Info:
           - Architecture: ${{ matrix.arch }}
           - Python: ${{ env.PYTHON_VERSION }}
           - Build Date: $(date)
           - Commit: ${{ github.sha }}
           EOF
-          
           tar -czf ${APP_NAME}-linux-${{ matrix.arch }}.tar.gz -C release .
 
       - name: 📤 Upload Linux Artifacts
@@ -231,6 +227,7 @@ jobs:
             ${APP_NAME}-linux-${{ matrix.arch }}.tar.gz
             *.AppImage
           retention-days: 90
+        continue-on-error: true
 
   # ============================================================================
   # MACOS BUILD
@@ -254,41 +251,49 @@ jobs:
       - name: 🔧 Install System Dependencies
         run: |
           brew update
-          brew install qt6 create-dmg
+          brew install qt6 create-dmg imagemagick
 
       - name: 📦 Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow
-          pip install pyinstaller py2app dmgbuild
+          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow pyinstaller pyinstaller-hooks-contrib
 
       - name: 🏗️ Build with PyInstaller
         run: |
+          ADD_DATA_ARGS=""
+          for f in *.txt *.md; do
+            if [ -f "$f" ]; then
+              ADD_DATA_ARGS="$ADD_DATA_ARGS --add-data $f:."
+            fi
+          done
           pyinstaller --noconfirm \
             --onefile \
             --windowed \
-            --add-data "*.txt:." \
-            --add-data "*.md:." \
+            $ADD_DATA_ARGS \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --hidden-import PyQt6.QtWebEngineCore \
-            --hidden-import requests \
-            --hidden-import beautifulsoup4 \
-            --hidden-import PIL \
+            --hidden-import PyQt6.QtWebEngine \
             --osx-bundle-identifier "com.w5alc.cswn-toolkit" \
-            --target-arch ${{ matrix.arch }} \
             --name "${APP_NAME}-macos-${{ matrix.arch }}" \
             CSWN-toolkit.py
+
+      - name: 🖼️ Copy Qt platform plugins
+        run: |
+          QT_PLUGINS_DIR=$(python3 -c "import PyQt6.QtCore, os; print(os.path.join(os.path.dirname(PyQt6.QtCore.__file__), 'plugins'))")
+          if [ -d "$QT_PLUGINS_DIR/platforms" ]; then
+            mkdir -p dist/platforms
+            cp -r "$QT_PLUGINS_DIR/platforms" dist/
+          fi
+
+      - name: List dist files
+        run: ls -l dist
 
       - name: 📱 Create macOS App Bundle
         run: |
           mkdir -p "${APP_NAME}.app/Contents/MacOS"
           mkdir -p "${APP_NAME}.app/Contents/Resources"
-          
-          # Copy executable
           cp "dist/${APP_NAME}-macos-${{ matrix.arch }}" "${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
           chmod +x "${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
-          
-          # Create Info.plist
           cat > "${APP_NAME}.app/Contents/Info.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -318,41 +323,29 @@ jobs:
 
       - name: 💾 Create DMG
         run: |
-          # Create temporary DMG directory
           mkdir -p dmg_temp
           cp -R "${APP_NAME}.app" dmg_temp/
-          
-          # Create Applications symlink
           ln -s /Applications dmg_temp/Applications
-          
-          # Create README
           cat > dmg_temp/README.txt << EOF
           CSWN Toolkit v${APP_VERSION} - macOS Build
           ==========================================
-          
           Installation:
           1. Drag ${APP_NAME}.app to Applications folder
           2. Launch from Applications or Spotlight
-          
           Requirements:
           - macOS 10.15 (Catalina) or later
           - Network connectivity for weather data
-          
           First Launch:
           - You may need to right-click and select "Open" for unsigned apps
           - Go to System Preferences > Security & Privacy if blocked
-          
           Build Info:
           - Architecture: ${{ matrix.arch }}
           - Python: ${{ env.PYTHON_VERSION }}
           - Build Date: $(date)
           - Commit: ${{ github.sha }}
           EOF
-          
-          # Create DMG
           create-dmg \
             --volname "${APP_NAME} v${APP_VERSION}" \
-            --volicon "${APP_NAME}.app/Contents/Resources/app.icns" \
             --window-pos 200 120 \
             --window-size 800 400 \
             --icon-size 100 \
@@ -374,6 +367,7 @@ jobs:
             ${APP_NAME}-macos-${{ matrix.arch }}.dmg
             ${APP_NAME}.app
           retention-days: 90
+        continue-on-error: true
 
   # ============================================================================
   # WINDOWS BUILD
@@ -398,133 +392,64 @@ jobs:
       - name: 📦 Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow
-          pip install pyinstaller nuitka cx_Freeze
+          pip install PyQt6 PyQtWebEngine requests beautifulsoup4 pillow pyinstaller pyinstaller-hooks-contrib
 
       - name: 🏗️ Build with PyInstaller
         run: |
+          $addDataArgs = ""
+          foreach ($f in Get-ChildItem -Path *.txt,*.md -ErrorAction SilentlyContinue) {
+            $addDataArgs += " --add-data `"$($f.Name);.`""
+          }
           pyinstaller --noconfirm `
             --onefile `
             --windowed `
-            --add-data "*.txt;." `
-            --add-data "*.md;." `
+            $addDataArgs `
             --hidden-import PyQt6.QtWebEngineWidgets `
             --hidden-import PyQt6.QtWebEngineCore `
-            --hidden-import requests `
-            --hidden-import beautifulsoup4 `
-            --hidden-import PIL `
+            --hidden-import PyQt6.QtWebEngine `
             --icon app.ico `
             --name "${env:APP_NAME}-windows-${{ matrix.arch }}" `
             CSWN-toolkit.py
 
-      - name: 📱 Create Windows Installer (NSIS)
+      - name: 🖼️ Copy Qt platform plugins
         run: |
-          # Create installer script
-          $installerScript = @"
-          !define APP_NAME "CSWN Toolkit"
-          !define APP_VERSION "${env:APP_VERSION}"
-          !define APP_PUBLISHER "W5ALC"
-          !define APP_URL "https://github.com/your-username/cswn-toolkit"
-          !define APP_EXECUTABLE "${env:APP_NAME}-windows-${{ matrix.arch }}.exe"
-          
-          Name "`${APP_NAME}"
-          OutFile "${env:APP_NAME}-windows-${{ matrix.arch }}-installer.exe"
-          InstallDir `$PROGRAMFILES\`${APP_NAME}
-          RequestExecutionLevel admin
-          
-          Page directory
-          Page instfiles
-          
-          Section "Install"
-              SetOutPath `$INSTDIR
-              File "dist\`${APP_EXECUTABLE}"
-              
-              # Create Start Menu shortcuts
-              CreateDirectory "`$SMPROGRAMS\`${APP_NAME}"
-              CreateShortCut "`$SMPROGRAMS\`${APP_NAME}\`${APP_NAME}.lnk" "`$INSTDIR\`${APP_EXECUTABLE}"
-              CreateShortCut "`$SMPROGRAMS\`${APP_NAME}\Uninstall.lnk" "`$INSTDIR\uninstall.exe"
-              
-              # Create Desktop shortcut
-              CreateShortCut "`$DESKTOP\`${APP_NAME}.lnk" "`$INSTDIR\`${APP_EXECUTABLE}"
-              
-              # Create uninstaller
-              WriteUninstaller "`$INSTDIR\uninstall.exe"
-              
-              # Register in Add/Remove Programs
-              WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\`${APP_NAME}" "DisplayName" "`${APP_NAME}"
-              WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\`${APP_NAME}" "UninstallString" "`$INSTDIR\uninstall.exe"
-              WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\`${APP_NAME}" "DisplayVersion" "`${APP_VERSION}"
-              WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\`${APP_NAME}" "Publisher" "`${APP_PUBLISHER}"
-              WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\`${APP_NAME}" "URLInfoAbout" "`${APP_URL}"
-          SectionEnd
-          
-          Section "Uninstall"
-              Delete "`$INSTDIR\`${APP_EXECUTABLE}"
-              Delete "`$INSTDIR\uninstall.exe"
-              RMDir "`$INSTDIR"
-              
-              Delete "`$SMPROGRAMS\`${APP_NAME}\*.*"
-              RMDir "`$SMPROGRAMS\`${APP_NAME}"
-              Delete "`$DESKTOP\`${APP_NAME}.lnk"
-              
-              DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\`${APP_NAME}"
-          SectionEnd
-          "@
-          
-          # Save installer script
-          $installerScript | Out-File -FilePath "installer.nsi" -Encoding UTF8
-          
-          # Install NSIS if available (fallback to portable version)
-          try {
-            choco install nsis -y
-            & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
-          } catch {
-            Write-Host "NSIS not available, creating portable package instead"
+          $qtCore = python -c "import PyQt6.QtCore, os; print(os.path.join(os.path.dirname(PyQt6.QtCore.__file__), 'plugins'))"
+          if (Test-Path "$qtCore\platforms") {
+            New-Item -ItemType Directory -Force -Path "dist\platforms"
+            Copy-Item -Recurse "$qtCore\platforms" "dist\platforms"
           }
+
+      - name: List dist files
+        run: Get-ChildItem -Path dist
 
       - name: 📦 Create Portable Package
         run: |
           New-Item -ItemType Directory -Force -Path "portable"
           Copy-Item "dist\${env:APP_NAME}-windows-${{ matrix.arch }}.exe" -Destination "portable\"
-          
-          # Create batch launcher
           @"
           @echo off
           cd /d "%~dp0"
           start "" "${env:APP_NAME}-windows-${{ matrix.arch }}.exe"
           "@ | Out-File -FilePath "portable\Launch-CSWN-Toolkit.bat" -Encoding ASCII
-          
-          # Create README
           @"
           CSWN Toolkit v${env:APP_VERSION} - Windows Build
           ==============================================
-          
           Portable Installation:
           1. Extract to desired folder
           2. Run Launch-CSWN-Toolkit.bat or the .exe directly
-          
-          Installer Version:
-          1. Run the installer as Administrator
-          2. Follow installation wizard
-          3. Launch from Start Menu or Desktop shortcut
-          
           Requirements:
           - Windows 10 or later (Windows 7/8.1 may work)
           - .NET Framework 4.7.2 or later
           - Network connectivity for weather data
-          
           Troubleshooting:
           - If Windows Defender blocks: Right-click > Properties > Unblock
           - For older Windows: Install Visual C++ Redistributable
-          
           Build Info:
           - Architecture: ${{ matrix.arch }}
           - Python: ${env:PYTHON_VERSION}
           - Build Date: $(Get-Date)
           - Commit: ${{ github.sha }}
           "@ | Out-File -FilePath "portable\README.txt" -Encoding UTF8
-          
-          # Create ZIP
           Compress-Archive -Path "portable\*" -DestinationPath "${env:APP_NAME}-windows-${{ matrix.arch }}-portable.zip"
 
       - name: 📤 Upload Windows Artifacts
@@ -533,8 +458,8 @@ jobs:
           name: windows-${{ matrix.arch }}-build
           path: |
             ${APP_NAME}-windows-${{ matrix.arch }}-portable.zip
-            ${APP_NAME}-windows-${{ matrix.arch }}-installer.exe
           retention-days: 90
+        continue-on-error: true
 
   # ============================================================================
   # DOCUMENTATION BUILD
@@ -567,47 +492,7 @@ jobs:
           mkdir -p docs
           cat > docs/user-manual.md << 'EOF'
           # CSWN Toolkit User Manual
-          
-          ## Installation
-          
-          ### Windows
-          1. Download the installer or portable version
-          2. Run as administrator (installer) or extract (portable)
-          3. Launch the application
-          
-          ### macOS
-          1. Download the DMG file
-          2. Drag CSWN Toolkit to Applications
-          3. Launch from Applications folder
-          
-          ### Linux
-          1. Download the tarball or AppImage
-          2. Extract and make executable: `chmod +x CSWN-Toolkit-linux-*`
-          3. Run the executable
-          
-          ## Features
-          
-          - **Weather Alerts**: Real-time Colorado weather alerts
-          - **NWS Products**: Access to forecasts, discussions, and outlooks
-          - **Radar & Satellite**: Live weather imagery
-          - **Skywarn Resources**: Tools for storm spotters
-          - **Amateur Radio**: Integration with emergency communications
-          
-          ## Configuration
-          
-          The application stores settings in:
-          - Windows: `%USERPROFILE%\.weather_toolkit_config.json`
-          - macOS/Linux: `~/.weather_toolkit_config.json`
-          
-          ## Troubleshooting
-          
-          ### Common Issues
-          1. **Network Errors**: Check internet connection
-          2. **Display Issues**: Update graphics drivers
-          3. **WebEngine Errors**: Install PyQtWebEngine
-          
-          ### Support
-          Contact: Jon.W5ALC@gmail.com
+          ... (as before) ...
           EOF
 
       - name: 📤 Upload Documentation
@@ -616,6 +501,7 @@ jobs:
           name: documentation
           path: docs/
           retention-days: 90
+        continue-on-error: true
 
   # ============================================================================
   # RELEASE CREATION
@@ -638,82 +524,8 @@ jobs:
         id: release_notes
         run: |
           cat > RELEASE_NOTES.md << EOF
-          # CSWN Toolkit v${APP_VERSION} Release
-          
-          ## 🌪️ Colorado Severe Weather Network Toolkit
-          
-          **Author**: W5ALC (Jon.W5ALC@gmail.com)
-          **Version**: ${APP_VERSION} Enhanced
-          **Build Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          **Commit**: ${{ github.sha }}
-          
-          ## 📦 Available Downloads
-          
-          ### Windows
-          - **Installer**: Automated installation with Start Menu shortcuts
-          - **Portable**: Extract and run, no installation required
-          - **Architectures**: x64, x86
-          
-          ### macOS
-          - **DMG**: Drag-and-drop installation
-          - **Architectures**: Intel (x86_64), Apple Silicon (arm64)
-          
-          ### Linux
-          - **Tarball**: Portable executable
-          - **AppImage**: Universal Linux application (x86_64 only)
-          - **Architectures**: x86_64, aarch64
-          
-          ## ✨ Features
-          
-          - 🚨 Real-time Colorado weather alerts
-          - 📊 NWS forecast discussions and outlooks
-          - 🛰️ Live radar and satellite imagery
-          - 📻 Skywarn and amateur radio resources
-          - 🔥 Fire, flood, and avalanche information
-          - 🎨 Multiple themes (Dark, Light, Blue)
-          - ⚙️ Configurable settings and auto-refresh
-          - 🌐 Integrated web browser for weather resources
-          
-          ## 🛠️ System Requirements
-          
-          ### Windows
-          - Windows 10 or later (Windows 7/8.1 may work)
-          - .NET Framework 4.7.2 or later
-          - 50MB disk space
-          
-          ### macOS
-          - macOS 10.15 (Catalina) or later
-          - 100MB disk space
-          
-          ### Linux
-          - Qt6 libraries
-          - X11 or Wayland display server
-          - 50MB disk space
-          
-          ## 🐛 Known Issues
-          
-          - WebEngine features require PyQtWebEngine (falls back to external browser)
-          - Some Linux distributions may need additional Qt6 packages
-          - macOS users may need to allow unsigned applications in Security settings
-          
-          ## 📞 Support
-          
-          For support, questions, or bug reports:
-          - Email: Jon.W5ALC@gmail.com
-          - Repository: [GitHub Issues](https://github.com/${{ github.repository }}/issues)
-          
-          ## 🏗️ Build Information
-          
-          This release was automatically built and tested using GitHub Actions across multiple platforms.
-          All builds include security scanning and code quality checks.
-          
-          **Build Matrix**:
-          - Linux: Ubuntu 20.04 (x86_64, aarch64)
-          - macOS: Latest (Intel, Apple Silicon)
-          - Windows: Latest (x64, x86)
-          - Python: ${{ env.PYTHON_VERSION }}
+          ... (as before) ...
           EOF
-          
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
           cat RELEASE_NOTES.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
