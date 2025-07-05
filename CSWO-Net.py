@@ -1453,7 +1453,7 @@ class SevereWeatherWindow(QWidget):
         self.init_setup_tab()
         self.init_script_tab()
         self.init_weather_tab()
-        # self.init_toolkit_tab()
+        self.init_toolkit_tab()
         self.init_settings_tab()
 
         main_layout.addWidget(self.tab_widget)
@@ -1959,6 +1959,210 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
 
         card.setLayout(layout)
         return card
+
+    def init_toolkit_tab(self):
+        self.toolkit_tab = QWidget
+
+        main_layout = QVBoxLayout()
+        self.setLayout(main_layout)
+        
+        # Header
+        header = QLabel(f"🌪️ {APP_TITLE}")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setStyleSheet("font-size: 24px; font-weight: bold; padding: 20px;")
+        main_layout.addWidget(header)
+        header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+        
+        # Progress bar for alerts
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        main_layout.addWidget(self.progress_bar)
+        
+        # Main content area
+        content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left panel - sections
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        
+        sections_label = QLabel("📂 Weather Resources")
+        sections_label.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px;")
+        left_layout.addWidget(sections_label)
+        
+        # Create section buttons
+        self.section_buttons = {}
+        for section_name in resources.keys():
+            btn = ModernButton(section_name)
+            btn.clicked.connect(lambda checked, name=section_name: self.load_section(name))
+            self.section_buttons[section_name] = btn
+            left_layout.addWidget(btn)
+        
+        # Quick alerts button
+        alerts_btn = ModernButton("🚨 Colorado Active Alerts")
+        alerts_btn.clicked.connect(self.show_alerts)
+        left_layout.addWidget(alerts_btn)
+        
+        left_layout.addStretch()
+        left_panel.setMaximumWidth(350)
+        
+        # Right panel - links
+        self.right_panel = QScrollArea()
+        self.right_panel.setWidgetResizable(True)
+        self.right_content = QWidget()
+        self.right_layout = QVBoxLayout(self.right_content)
+        self.right_panel.setWidget(self.right_content)
+        
+        # Welcome message
+        welcome = QLabel("👈 Select a weather resource category from the left panel to begin")
+        welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        welcome.setStyleSheet("font-size: 18px; padding: 50px; color: #888;")
+        self.right_layout.addWidget(welcome)
+        self.right_layout.addStretch()
+        
+        content_splitter.addWidget(left_panel)
+        content_splitter.addWidget(self.right_panel)
+        content_splitter.setSizes([350, 1050])
+        
+        main_layout.addWidget(content_splitter)
+        
+        # Status bar
+        # self.statusBar().showMessage(f"Ready - {APP_AUTHOR} ({AUTHOR_EMAIL})")
+
+    def show_web_popup(self, url, title):
+        if not WEBENGINE_AVAILABLE:
+            QMessageBox.information(self, "WebEngine Not Available",
+                "PyQtWebEngine is not installed. Opening in external browser instead.\n\n"
+                "To install: pip install PyQtWebEngine")
+            webbrowser.open(url)
+            return
+
+        popup = WebViewPopup(self, url, title, self.current_theme, self.config["font_size"])
+        popup.exec()
+
+    def load_section(self, section_name):
+        # Clear right panel
+        for i in reversed(range(self.right_layout.count())):
+            child = self.right_layout.itemAt(i).widget()
+            if child:
+                child.setParent(None)
+        
+        if section_name not in resources:
+            return
+        
+        # Section header
+        header = QLabel(f"{section_name}")
+        header.setStyleSheet("font-size: 16px; font-weight: bold; padding: 8px;")
+        self.right_layout.addWidget(header)
+        
+        # Create link buttons
+        links = resources[section_name]
+        for link_name, url in links.items():
+            link_group = ModernGroupBox(link_name)
+            link_layout = QVBoxLayout()
+            
+            # Button layout
+            btn_layout = QHBoxLayout()
+            
+            # Special handling for different content types
+            if any(x in url for x in ["HWO", "AFD", "product.php"]):
+                view_btn = ModernButton("📄 View Text")
+                view_btn.clicked.connect(lambda checked, u=url, n=link_name: self.show_text_popup(u, n, "NWS Text Product", True))
+                btn_layout.addWidget(view_btn)
+            elif "GOES" in url and url.endswith(".jpg"):
+                view_btn = ModernButton("🛰️ View Image")
+                view_btn.clicked.connect(lambda checked, u=url: self.show_image_popup(u))
+                btn_layout.addWidget(view_btn)
+            elif "spotter" in url and url.endswith(".png"):
+                view_btn = ModernButton("🛰️ View Image")
+                view_btn.clicked.connect(lambda checked, u=url: self.show_spotter_image_popup(u))
+                btn_layout.addWidget(view_btn)
+            
+            web_btn = ModernButton("🖥️ View in App")
+            web_btn.clicked.connect(lambda checked, u=url, n=link_name: self.show_web_popup(u, n))
+            btn_layout.addWidget(web_btn)
+
+            # Open in browser button
+            # open_btn = ModernButton("🌐 Open in Browser")
+            # open_btn.clicked.connect(lambda checked, u=url: webbrowser.open(u))
+            # btn_layout.addWidget(open_btn)
+
+            link_layout.addLayout(btn_layout)
+            
+            # URL display
+            url_label = QLabel(f"🔗 {url}")
+            url_label.setStyleSheet("font-size: 11px; padding: 5px; font-family: monospace;")
+            url_label.setWordWrap(True)
+            link_layout.addWidget(url_label)
+            
+            link_group.setLayout(link_layout)
+            self.right_layout.addWidget(link_group)
+        
+        self.right_layout.addStretch()
+        
+        # Apply theme to new widgets
+        self.apply_theme_to_section()
+
+    def apply_theme_to_section(self):
+        theme = self.current_theme
+        for i in range(self.right_layout.count()):
+            item = self.right_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                if isinstance(widget, ModernGroupBox):
+                    widget.apply_style(theme)
+                    # Apply theme to buttons inside
+                    for j in range(widget.layout().count()):
+                        sub_item = widget.layout().itemAt(j)
+                        if sub_item and hasattr(sub_item, 'count'):
+                            for k in range(sub_item.count()):
+                                btn_item = sub_item.itemAt(k)
+                                if btn_item and isinstance(btn_item.widget(), ModernButton):
+                                    btn_item.widget().apply_style(theme)
+
+    def show_text_popup(self, url, title, typ, parse_pre=False):
+        popup = TextPopup(self, url, title, typ, self.current_theme, self.config["font_size"], parse_pre)
+        popup.exec()
+
+    def show_image_popup(self, url):
+        popup = ImagePopup(self, url, self.current_theme, self.config["font_size"])
+        popup.exec()
+
+    def show_spotter_image_popup(self, url):
+        popup = SpotterImagePopup(self, url, self.current_theme, self.config["font_size"])
+        popup.exec()
+
+    def show_alerts(self):
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        
+        self.fetcher = AlertFetcher("https://alerts.weather.gov/cap/co.php?x=0")
+        self.fetcher.alerts_loaded.connect(self.display_alerts)
+        self.fetcher.progress_updated.connect(self.progress_bar.setValue)
+        self.fetcher.start()
+
+    def display_alerts(self, alert_text):
+        self.progress_bar.setVisible(False)
+        popup = QDialog(self)
+        popup.setWindowTitle("🚨 Colorado Active Weather Alerts")
+        popup.setMinimumSize(1000, 700)
+        
+        layout = QVBoxLayout()
+        
+        text_area = QTextEdit()
+        text_area.setPlainText(alert_text)
+        text_area.setReadOnly(True)
+        text_area.setFont(QFont("Consolas", self.config["font_size"]))
+        layout.addWidget(text_area)
+        
+        close_btn = QPushButton("❌ Close")
+        close_btn.clicked.connect(popup.close)
+        layout.addWidget(close_btn)
+        
+        popup.setLayout(layout)
+        popup.setStyleSheet(self.get_dialog_style())
+        popup.exec()
+
 
     def init_settings_tab(self):
         """Initialize settings tab"""
