@@ -2014,21 +2014,23 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         return card
 
     def init_toolkit_tab(self):
-        self.toolkit_tab = QWidget
-#        layout = QVBoxLayout()
+        # FIX: Add parentheses to instantiate QWidget
+        self.toolkit_tab = QWidget()
 
+        # Add the tab to the tab widget
+        self.tab_widget.addTab(self.toolkit_tab, "🧰 Toolkit")
 
-
+        # Create the main layout for the toolkit tab
         main_layout = QVBoxLayout()
-        self.setLayout(main_layout)
+        self.toolkit_tab.setLayout(main_layout)  # Set layout on the widget, not self
         main_layout.setSpacing(15)
+
         # Header
-        header = QLabel(f"🌪️ {self.APP_NAME}")
+        header = QLabel(f"🌪 {self.APP_NAME}")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setStyleSheet("font-size: 24px; font-weight: bold; padding: 20px;")
         main_layout.addWidget(header)
         header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-
 
         # Progress bar for alerts
         self.progress_bar = QProgressBar()
@@ -2093,7 +2095,7 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
             webbrowser.open(url)
             return
 
-        popup = WebViewPopup(self, url, title, self.current_theme, self.config["font_size"])
+        popup = WebViewPopup(self, url, title)
         popup.exec()
 
     def load_section(self, section_name):
@@ -2160,6 +2162,7 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         self.apply_theme_to_section()
 
     def apply_theme_to_section(self):
+        self.current_theme = themes[self.config["theme"]]
         theme = self.current_theme
         for i in range(self.right_layout.count()):
             item = self.right_layout.itemAt(i)
@@ -2783,6 +2786,7 @@ Last updated: """ + get_current_mountain_time()['full']
     def change_theme(self, theme_name: str):
         """Change application theme"""
         self.theme_dark = (theme_name == "Dark")
+        self.current_theme = (theme_name == "Dark")
         self.apply_theme()
 
     def apply_theme(self):
