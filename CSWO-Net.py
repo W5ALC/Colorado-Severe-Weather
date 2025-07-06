@@ -1403,9 +1403,62 @@ class NWSTextFetcher:
     def get_wfo_code(self, location_name: str) -> Optional[str]:
         return self.wfo_codes.get(location_name.lower())
 
+class ModernButton(QPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setMinimumHeight(40)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def apply_style(self, theme):
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background: {theme['button_bg']};
+                color: {theme['button_fg']};
+                border: 2px solid {theme['group_border']};
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-weight: 500;
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background: {theme['button_hover']};
+                border-color: {theme['accent']};
+                color: {theme['accent']};
+            }}
+            QPushButton:pressed {{
+                background: {theme['button_pressed']};
+                border-color: {theme['accent_hover']};
+            }}
+        """)
+
+class ModernGroupBox(QGroupBox):
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
+
+    def apply_style(self, theme):
+        self.setStyleSheet(f"""
+            QGroupBox {{
+                font-weight: 600;
+                font-size: 14px;
+                color: {theme['section_fg']};
+                border: 2px solid {theme['group_border']};
+                border-radius: 12px;
+                margin-top: 1ex;
+                padding-top: 10px;
+                background: {theme['group_bg']};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 8px;
+                background: {theme['group_bg']};
+                border-radius: 4px;
+            }}
+        """)
 
 class SevereWeatherWindow(QWidget):
     """Main application window with enhanced features"""
+    APP_NAME = "Colorado Severe Weather Outlook Net Controller"
 
     def __init__(self):
         super().__init__()
@@ -1962,34 +2015,37 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
 
     def init_toolkit_tab(self):
         self.toolkit_tab = QWidget
+#        layout = QVBoxLayout()
+
+
 
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
-        
+        main_layout.setSpacing(15)
         # Header
-        header = QLabel(f"🌪️ {APP_TITLE}")
+        header = QLabel(f"🌪️ {self.APP_NAME}")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setStyleSheet("font-size: 24px; font-weight: bold; padding: 20px;")
         main_layout.addWidget(header)
         header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
-        
+
         # Progress bar for alerts
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         main_layout.addWidget(self.progress_bar)
-        
+
         # Main content area
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        
+
         # Left panel - sections
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
-        
+
         sections_label = QLabel("📂 Weather Resources")
         sections_label.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px;")
         left_layout.addWidget(sections_label)
-        
+
         # Create section buttons
         self.section_buttons = {}
         for section_name in resources.keys():
@@ -1997,35 +2053,35 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
             btn.clicked.connect(lambda checked, name=section_name: self.load_section(name))
             self.section_buttons[section_name] = btn
             left_layout.addWidget(btn)
-        
+
         # Quick alerts button
         alerts_btn = ModernButton("🚨 Colorado Active Alerts")
         alerts_btn.clicked.connect(self.show_alerts)
         left_layout.addWidget(alerts_btn)
-        
+
         left_layout.addStretch()
         left_panel.setMaximumWidth(350)
-        
+
         # Right panel - links
         self.right_panel = QScrollArea()
         self.right_panel.setWidgetResizable(True)
         self.right_content = QWidget()
         self.right_layout = QVBoxLayout(self.right_content)
         self.right_panel.setWidget(self.right_content)
-        
+
         # Welcome message
         welcome = QLabel("👈 Select a weather resource category from the left panel to begin")
         welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
         welcome.setStyleSheet("font-size: 18px; padding: 50px; color: #888;")
         self.right_layout.addWidget(welcome)
         self.right_layout.addStretch()
-        
+
         content_splitter.addWidget(left_panel)
         content_splitter.addWidget(self.right_panel)
         content_splitter.setSizes([350, 1050])
-        
+
         main_layout.addWidget(content_splitter)
-        
+
         # Status bar
         # self.statusBar().showMessage(f"Ready - {APP_AUTHOR} ({AUTHOR_EMAIL})")
 
@@ -2046,24 +2102,24 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
             child = self.right_layout.itemAt(i).widget()
             if child:
                 child.setParent(None)
-        
+
         if section_name not in resources:
             return
-        
+
         # Section header
         header = QLabel(f"{section_name}")
         header.setStyleSheet("font-size: 16px; font-weight: bold; padding: 8px;")
         self.right_layout.addWidget(header)
-        
+
         # Create link buttons
         links = resources[section_name]
         for link_name, url in links.items():
             link_group = ModernGroupBox(link_name)
             link_layout = QVBoxLayout()
-            
+
             # Button layout
             btn_layout = QHBoxLayout()
-            
+
             # Special handling for different content types
             if any(x in url for x in ["HWO", "AFD", "product.php"]):
                 view_btn = ModernButton("📄 View Text")
@@ -2077,7 +2133,7 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
                 view_btn = ModernButton("🛰️ View Image")
                 view_btn.clicked.connect(lambda checked, u=url: self.show_spotter_image_popup(u))
                 btn_layout.addWidget(view_btn)
-            
+
             web_btn = ModernButton("🖥️ View in App")
             web_btn.clicked.connect(lambda checked, u=url, n=link_name: self.show_web_popup(u, n))
             btn_layout.addWidget(web_btn)
@@ -2088,18 +2144,18 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
             # btn_layout.addWidget(open_btn)
 
             link_layout.addLayout(btn_layout)
-            
+
             # URL display
             url_label = QLabel(f"🔗 {url}")
             url_label.setStyleSheet("font-size: 11px; padding: 5px; font-family: monospace;")
             url_label.setWordWrap(True)
             link_layout.addWidget(url_label)
-            
+
             link_group.setLayout(link_layout)
             self.right_layout.addWidget(link_group)
-        
+
         self.right_layout.addStretch()
-        
+
         # Apply theme to new widgets
         self.apply_theme_to_section()
 
@@ -2135,7 +2191,7 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
     def show_alerts(self):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        
+
         self.fetcher = AlertFetcher("https://alerts.weather.gov/cap/co.php?x=0")
         self.fetcher.alerts_loaded.connect(self.display_alerts)
         self.fetcher.progress_updated.connect(self.progress_bar.setValue)
@@ -2146,19 +2202,19 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         popup = QDialog(self)
         popup.setWindowTitle("🚨 Colorado Active Weather Alerts")
         popup.setMinimumSize(1000, 700)
-        
+
         layout = QVBoxLayout()
-        
+
         text_area = QTextEdit()
         text_area.setPlainText(alert_text)
         text_area.setReadOnly(True)
         text_area.setFont(QFont("Consolas", self.config["font_size"]))
         layout.addWidget(text_area)
-        
+
         close_btn = QPushButton("❌ Close")
         close_btn.clicked.connect(popup.close)
         layout.addWidget(close_btn)
-        
+
         popup.setLayout(layout)
         popup.setStyleSheet(self.get_dialog_style())
         popup.exec()
@@ -2333,6 +2389,8 @@ for the 5 National Weather Service Weather Forecast Offices with whom we partner
 PLEASE allow 3-5 seconds between transmissions, 1.5 seconds for keyup and then begin speaking. ALSO, keep the PTT pushed a half second or so after your last word. That allows your last word not to be cut off.
 
 This is a directed NET. All check-ins must go through net control."""
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
 
         self.sections.append(("Opening", opening))
 
