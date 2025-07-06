@@ -19,6 +19,8 @@ import json
 import logging
 import requests
 import time
+import webbrowser
+
 from bs4 import BeautifulSoup
 import re
 from datetime import datetime, timezone, timedelta
@@ -34,18 +36,52 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import (
     Qt, QTimer, QSettings, pyqtSignal, QPropertyAnimation, QRect, QEasingCurve,
-    QThread, QObject, QSize, QDateTime, QTimeZone
+    QThread, QObject, QSize, QDateTime, QTimeZone, QUrl
 )
 from PyQt6.QtGui import (
     QFont, QIcon, QPalette, QColor, QPixmap, QPainter, QAction as QGuiAction,
     QKeySequence, QTextCharFormat, QTextCursor, QAction
 )
 
+from io import BytesIO
+
+try:
+    from bs4 import BeautifulSoup
+    import xml.etree.ElementTree as ET
+    from PIL import Image, ImageQt
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEngineSettings
+    WEBENGINE_AVAILABLE = True
+except ImportError as e:
+    print(f"WebEngine not available: {e}")
+    WEBENGINE_AVAILABLE = False
+    try:
+        from bs4 import BeautifulSoup
+        import xml.etree.ElementTree as ET
+        from PIL import Image, ImageQt
+    except Exception as e:
+        print(f"Import error: {e.__class__.__name__}: {e}")
+        sys.exit(1)
+
 # Configuration Constants
 class Config:
     APP_NAME = "Colorado Severe Weather Outlook Net Controller"
-    APP_VERSION = "3.0"
-    ORGANIZATION = "ColoradoSWO"
+    ORGANIZATION = "SKYHUBLINK"
+    APP_TITLE = "Colorado Severe Weather Network Toolkit"
+    APP_AUTHOR = "W5ALC"
+    AUTHOR_EMAIL = "Jon.W5ALC@gmail.com"
+    APP_VERSION = "2.1 Enhanced"
+
+    DEFAULT_CONFIG = {
+        "theme": "dark",
+        "font_size": 12,
+        "auto_refresh_mins": 5,
+        "window_geometry": "1400x1000+50+50",
+        "default_section": "",
+        "compact_mode": False,
+        "show_tooltips": True,
+    }
+
 
     # Default values with better environment variable handling
     DEFAULT_CALLSIGN = os.environ.get('NET_CONTROL_CALLSIGN', 'NC2WX')
@@ -148,7 +184,89 @@ resources = {
     }
 }
 
-
+themes = {
+    "dark": {
+        "bg": "#1a1a1a",
+        "bg_secondary": "#2d2d2d",
+        "fg": "#ffffff",
+        "fg_secondary": "#b0b0b0",
+        "accent": "#00d4ff",
+        "accent_hover": "#00b8e6",
+        "button_bg": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3a3a3a, stop:1 #2a2a2a)",
+        "button_hover": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4a4a4a, stop:1 #3a3a3a)",
+        "button_pressed": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2a2a2a, stop:1 #1a1a1a)",
+        "button_fg": "#ffffff",
+        "group_bg": "#252525",
+        "group_border": "#404040",
+        "entry_bg": "#2a2a2a",
+        "entry_fg": "#ffffff",
+        "entry_border": "#404040",
+        "entry_focus": "#00d4ff",
+        "section_fg": "#00d4ff",
+        "status_bg": "#1f1f1f",
+        "status_fg": "#ffffff",
+        "warning": "#ff4757",
+        "watch": "#ffa726",
+        "advisory": "#ffeb3b",
+        "success": "#4caf50",
+        "info": "#2196f3",
+        "shadow": "rgba(0, 0, 0, 0.3)",
+    },
+    "light": {
+        "bg": "#f8f9fa",
+        "bg_secondary": "#ffffff",
+        "fg": "#212529",
+        "fg_secondary": "#6c757d",
+        "accent": "#007bff",
+        "accent_hover": "#0056b3",
+        "button_bg": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffffff, stop:1 #f8f9fa)",
+        "button_hover": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f8f9fa, stop:1 #e9ecef)",
+        "button_pressed": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #e9ecef, stop:1 #dee2e6)",
+        "button_fg": "#212529",
+        "group_bg": "#ffffff",
+        "group_border": "#dee2e6",
+        "entry_bg": "#ffffff",
+        "entry_fg": "#212529",
+        "entry_border": "#ced4da",
+        "entry_focus": "#007bff",
+        "section_fg": "#007bff",
+        "status_bg": "#f8f9fa",
+        "status_fg": "#212529",
+        "warning": "#dc3545",
+        "watch": "#fd7e14",
+        "advisory": "#ffc107",
+        "success": "#28a745",
+        "info": "#17a2b8",
+        "shadow": "rgba(0, 0, 0, 0.1)",
+    },
+    "blue": {
+        "bg": "#0d1421",
+        "bg_secondary": "#1e2a3a",
+        "fg": "#ffffff",
+        "fg_secondary": "#a0b0c0",
+        "accent": "#4fc3f7",
+        "accent_hover": "#29b6f6",
+        "button_bg": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2a3f5f, stop:1 #1e2a3a)",
+        "button_hover": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3a4f70, stop:1 #2a3f5f)",
+        "button_pressed": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e2a3a, stop:1 #0d1421)",
+        "button_fg": "#ffffff",
+        "group_bg": "#1a2533",
+        "group_border": "#2a3f5f",
+        "entry_bg": "#1e2a3a",
+        "entry_fg": "#ffffff",
+        "entry_border": "#2a3f5f",
+        "entry_focus": "#4fc3f7",
+        "section_fg": "#4fc3f7",
+        "status_bg": "#0d1421",
+        "status_fg": "#ffffff",
+        "warning": "#f44336",
+        "watch": "#ff9800",
+        "advisory": "#ffeb3b",
+        "success": "#4caf50",
+        "info": "#2196f3",
+        "shadow": "rgba(0, 0, 0, 0.4)",
+    }
+}
 
 # NWS Weather Forecast Offices serving Colorado
 NWS_OFFICES = {
@@ -1459,6 +1577,15 @@ class ModernGroupBox(QGroupBox):
 class SevereWeatherWindow(QWidget):
     """Main application window with enhanced features"""
     APP_NAME = "Colorado Severe Weather Outlook Net Controller"
+    config = {
+        "theme": "dark",
+        "font_size": 12,
+        "auto_refresh_mins": 5,
+        "window_geometry": "1400x1000+50+50",
+        "default_section": "",
+        "compact_mode": False,
+        "show_tooltips": True,
+    }
 
     def __init__(self):
         super().__init__()
@@ -1487,6 +1614,12 @@ class SevereWeatherWindow(QWidget):
         self.auto_save_timer = QTimer()
         self.auto_save_timer.timeout.connect(self.auto_save)
         self.auto_save_timer.start(60000)  # Auto-save every minute
+
+        if hasattr(self, 'config') and 'theme' in self.config:
+            self.current_theme = themes[self.config["theme"]]
+        else:
+            # Default fallback
+            self.current_theme = themes.get("light", {})
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -2095,7 +2228,7 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
             webbrowser.open(url)
             return
 
-        popup = WebViewPopup(self, url, title)
+        popup = WebViewPopup(self, url, title, self.current_theme, self.config["font_size"])
         popup.exec()
 
     def load_section(self, section_name):
@@ -2162,7 +2295,10 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         self.apply_theme_to_section()
 
     def apply_theme_to_section(self):
-        self.current_theme = themes[self.config["theme"]]
+        # Make sure current_theme is set from config if not already set
+        if not hasattr(self, 'current_theme') or self.current_theme is None:
+            self.current_theme = themes[self.config["theme"]]
+
         theme = self.current_theme
         for i in range(self.right_layout.count()):
             item = self.right_layout.itemAt(i)
@@ -2180,6 +2316,10 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
                                     btn_item.widget().apply_style(theme)
 
     def show_text_popup(self, url, title, typ, parse_pre=False):
+        # Safety check for current_theme
+        if not hasattr(self, 'current_theme') or self.current_theme is None:
+            self.current_theme = themes[self.config.get("theme", "light")]
+
         popup = TextPopup(self, url, title, typ, self.current_theme, self.config["font_size"], parse_pre)
         popup.exec()
 
@@ -2786,7 +2926,8 @@ Last updated: """ + get_current_mountain_time()['full']
     def change_theme(self, theme_name: str):
         """Change application theme"""
         self.theme_dark = (theme_name == "Dark")
-        self.current_theme = (theme_name == "Dark")
+        # Fix: Set current_theme to the actual theme dictionary, not a boolean
+        self.current_theme = themes[theme_name.lower()]  # Assuming themes dict has lowercase keys
         self.apply_theme()
 
     def apply_theme(self):
@@ -3107,6 +3248,36 @@ Last updated: """ + get_current_mountain_time()['full']
             self.update_navigation()
 
             self.status_bar.show_message("All fields reset")
+
+    def get_dialog_style(self):
+        theme = self.current_theme
+        return f"""
+            QDialog {{
+                background: {theme['bg']};
+                color: {theme['fg']};
+            }}
+            QTextEdit {{
+                background: {theme['entry_bg']};
+                color: {theme['entry_fg']};
+                border: 2px solid {theme['entry_border']};
+                border-radius: 8px;
+                padding: 10px;
+            }}
+            QPushButton {{
+                background: {theme['button_bg']};
+                color: {theme['button_fg']};
+                border: 2px solid {theme['group_border']};
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-weight: 600;
+                margin: 5px;
+            }}
+            QPushButton:hover {{
+                background: {theme['button_hover']};
+                border-color: {theme['accent']};
+            }}
+        """
+
 
     def closeEvent(self, event):
         """Handle application close event"""
