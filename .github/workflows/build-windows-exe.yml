@@ -34,5 +34,5 @@ jobs:
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CSWN-exe
+          name: Colorado-Severe-Weather
           path: dist/*.exe
