@@ -14,14 +14,15 @@
 ## 🧰 Features
 
 - **Net control script generator**  
-  Easily generate a net script for the current day.
-
+ - Easily generate a net script for the current day.
+ - Includes the AFD and HWO for each of the 5 WFO we partner with.
+ - Easily modify parameters to keep information relevent
 
 - **Hazardous Weather Outlooks**  
-  One-click access to HWO pages for Grand Junction, Boulder, Pueblo, Cheyenne, and Goodland offices.
+  - One-click access to HWO pages for Grand Junction, Boulder, Pueblo, Cheyenne, and Goodland offices.
 
 - **Area Forecast Discussions (AFDs)**  
-  Quickly view detailed forecast discussions from multiple NWS offices.
+  - Quickly view detailed forecast discussions from multiple NWS offices.
 
 - **Storm Prediction Center (SPC) Resources**  
   - SPC Outlooks  
@@ -106,31 +107,13 @@ Screenshots of the program in action:
 ![No Active Alerts](CSWN-alert-none.png)
 ![GOES Viewer](CSWN-GOES.png)
 ![SPC Mesoscale Discussions](https://github.com/W5ALC/Pictures/blob/main/mesoscale-discussions.png))
-![AFD Tool](https://github.com/W5ALC/Pictures/blob/main/afd.png)
-![HWO Tool](https://github.com/W5ALC/Pictures/blob/main/hwo.png)
-![Additional View - GEOS](https://github.com/W5ALC/Pictures/blob/main/goes19.png)
-![Additional View - NWS Radar](https://github.com/W5ALC/Pictures/blob/main/nws-radar.png)
-![Additional View - Excessive Rainfall](https://github.com/W5ALC/Pictures/blob/main/excessive-rainfall.png)
+![AFD Tool](CSWN-AFD.png)
+![HWO Tool](CSWN-HWO.png)
+![Additional View - GEOS](CSWN-GOES-zoom.png)
+![METED](CSWN-METED,png)
+
 
 ---
-
-## 📂 Directory Structure
-
-```plaintext
-Colorado-Severe-Weather/
-├── Colorado-SWN.exe
-├── Colorado-SWN.py
-├── colorado_severe_weather_rounded.ico
-├── CSWN.png
-├── CSWN-AFD.png
-├── CSWN-GEOS.png
-├── CSWN-GOES-load.png
-├── CSWN-HWO.png
-├── CSWN-SPC-1.png
-├── CSWN-SPC-Browser.png
-├── CSWN-SPC.png
-└── README.md
-```
 
 ---
 
