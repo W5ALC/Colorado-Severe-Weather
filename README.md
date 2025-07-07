@@ -100,9 +100,11 @@ Or use the AppImage (if available):
 
 Screenshots of the program in action:
 
-![Main Menu](https://github.com/W5ALC/Pictures/blob/main/toolkit.png)
-![Actice Alerts](https://github.com/W5ALC/Pictures/blob/main/active-alert.png)
-![GOES Viewer](GOES-19-zoom.png)
+![Toolkit Tab](CSWN-toolkit.png)
+![SPC and Severe Weather](CSWN-SPC.png)
+![Active Alerts](CSWN-CO-Alert.png)
+![No Active Alerts](CSWN-alert-none.png)
+![GOES Viewer](CSWN-GOES.png)
 ![SPC Mesoscale Discussions](https://github.com/W5ALC/Pictures/blob/main/mesoscale-discussions.png))
 ![AFD Tool](https://github.com/W5ALC/Pictures/blob/main/afd.png)
 ![HWO Tool](https://github.com/W5ALC/Pictures/blob/main/hwo.png)
