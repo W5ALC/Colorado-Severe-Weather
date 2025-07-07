@@ -58,6 +58,7 @@
 
 - Python 3.x  
 - `PyQT6`
+- `PyQt6-WebEngine`
 - `requests`
 - `beautifulsoup4`
 - `pillow`
@@ -68,11 +69,24 @@
 ```bash
 git clone https://github.com/W5ALC/Colorado-Severe-Weather.git
 cd Colorado-Severe-Weather
-python3 CSWN-toolkit.py
+python3 Colorado-Severe-Weather.py
 ```
 
 > Or run the compiled executable: `CSWN-toolkit.exe` (Windows)
-> [Github Release](https://github.com/W5ALC/Colorado-Severe-Weather/releases/download/exe.1/CSWN-toolkit.exe)
+> [Windows Release](https://github.com/W5ALC/Colorado-Severe-Weather/releases/download/v2.1.0/CSWN-Toolkit-v2.1.0-windows.zip))
+>
+> Or run the compiled executable: `CSWN-Toolkit-v2.1.0-macos.dmg` (MacOS)
+> [MacOS Release](https://github.com/W5ALC/Colorado-Severe-Weather/releases/download/v2.1.0/CSWN-Toolkit-v2.1.0-macos.dmg)
+
+> Or run the compiled executable: `CSWN-toolkit.exe` (Linux) (AppImage)
+> [Linux Release](https://github.com/W5ALC/Colorado-Severe-Weather/releases/download/v2.1.0/CSWN-Toolkit-v2.1.0-linux.tar.gz)
+Installation:
+1. Make executable: chmod +x CSWN-Toolkit-linux-x86_64
+2. Run: ./CSWN-Toolkit-linux-x86_64
+
+Or use the AppImage (if available):
+1. Make executable: chmod +x *.AppImage
+2. Run: ./CSWN*.AppImage
 
 ---
 
