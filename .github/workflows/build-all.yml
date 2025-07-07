@@ -255,7 +255,7 @@ jobs:
     if: always() && (needs.quality-checks.result == 'success' || needs.quality-checks.result == 'skipped')
     strategy:
       matrix:
-        arch: [x86_64, arm64]
+        arch: [arm64]
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
