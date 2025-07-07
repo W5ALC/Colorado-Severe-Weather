@@ -106,10 +106,9 @@ Screenshots of the program in action:
 ![Active Alerts](CSWN-CO-Alert.png)
 ![No Active Alerts](CSWN-alert-none.png)
 ![GOES Viewer](CSWN-GOES.png)
-![SPC Mesoscale Discussions](https://github.com/W5ALC/Pictures/blob/main/mesoscale-discussions.png))
+![Additional View - GEOS](CSWN-GOES-zoom.png)
 ![AFD Tool](CSWN-AFD.png)
 ![HWO Tool](CSWN-HWO.png)
-![Additional View - GEOS](CSWN-GOES-zoom.png)
 ![METED](CSWN-METED,png)
 
 
