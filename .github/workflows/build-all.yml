@@ -1,31 +1,26 @@
-name: CSWN Toolkit - Build & Release
+name: CSWN Toolkit - Multi-Platform Release
 
 on:
   push:
-    branches: [ main, develop ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
+    tags: ['v*']
   workflow_dispatch:
     inputs:
-      create_release:
-        description: 'Create a release'
-        required: false
-        default: false
-        type: boolean
+      version:
+        description: 'Version to release (e.g., v2.1.0)'
+        required: true
+        default: 'v2.1.0'
 
 env:
   PYTHON_VERSION: '3.11'
   APP_NAME: 'CSWN-Toolkit'
-  APP_VERSION: '2.1'
 
 jobs:
   # ============================================================================
-  # CODE QUALITY & TESTING
+  # WINDOWS BUILD
   # ============================================================================
-  quality-checks:
-    name: 🔍 Code Quality & Security
-    runs-on: ubuntu-latest
+  build-windows:
+    name: 🪟 Build Windows
+    runs-on: windows-latest
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -38,224 +33,113 @@ jobs:
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 bandit safety black isort mypy
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow pyinstaller
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
 
-      - name: 🎨 Code Formatting Check (Black)
-        run: black --check --diff . || true
-        continue-on-error: true
-
-      - name: 📏 Import Sorting Check (isort)
-        run: isort --check-only --diff . || true
-        continue-on-error: true
-
-      - name: 🔍 Lint with Flake8
+      - name: 🏗️ Build Application
         run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics || true
-        continue-on-error: true
+          $mainFile = "main.py"
+          if (Test-Path "main.py") {
+            $mainFile = "main.py"
+          } elseif (Test-Path "app.py") {
+            $mainFile = "app.py"
+          } elseif (Test-Path "Colorado-Severe-Weather.py") {
+            $mainFile = "Colorado-Severe-Weather.py"
+          } else {
+            Write-Host "Creating placeholder main.py..."
+            "print('CSWN Toolkit - Please add your main application code')" | Out-File -FilePath "main.py" -Encoding UTF8
+            $mainFile = "main.py"
+          }
+          
+          Write-Host "Building from: $mainFile"
+          
+          pyinstaller --noconfirm `
+            --onefile `
+            --windowed `
+            --hidden-import PyQt6.QtCore `
+            --hidden-import PyQt6.QtWidgets `
+            --hidden-import PyQt6.QtGui `
+            --hidden-import requests `
+            --hidden-import beautifulsoup4 `
+            --hidden-import PIL `
+            --name "${env:APP_NAME}" `
+            $mainFile
 
-      - name: 🛡️ Security Analysis (Bandit)
-        run: bandit -r . -f json -o bandit-report.json || true
-        continue-on-error: true
-
-      - name: 🔐 Dependency Security Check (Safety)
-        run: safety check --json --output safety-report.json || true
-        continue-on-error: true
-
-      - name: 📊 Upload Security Reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: security-reports
-          path: |
-            bandit-report.json
-            safety-report.json
-          retention-days: 30
-
-  # ============================================================================
-  # LINUX BUILD
-  # ============================================================================
-  build-linux:
-    name: 🐧 Build Linux (${{ matrix.arch }})
-    runs-on: ubuntu-22.04
-    needs: quality-checks
-    if: always() && (needs.quality-checks.result == 'success' || needs.quality-checks.result == 'skipped')
-    strategy:
-      matrix:
-        arch: [x86_64]  # Simplified to x86_64 only for reliability
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: 🔧 Install System Dependencies
+      - name: 📦 Create Windows Package
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            libgl1-mesa-dev \
-            libxkbcommon-x11-0 \
-            libxcb-cursor0 \
-            libxcb-xinerama0 \
-            libfontconfig1 \
-            libfreetype6 \
-            libx11-6 \
-            libxext6 \
-            libxfixes3 \
-            libxi6 \
-            libxrender1 \
-            libxrandr2 \
-            libxss1 \
-            libxtst6 \
-            ca-certificates \
-            fonts-liberation \
-            libappindicator3-1 \
-            libasound2 \
-            libatk-bridge2.0-0 \
-            libdrm2 \
-            libgtk-3-0 \
-            libnspr4 \
-            libnss3 \
-            libxcomposite1 \
-            libxdamage1 \
-            xdg-utils \
-            imagemagick
-
-      - name: 📦 Install Python Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow
-          pip install pyinstaller
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      - name: 🏗️ Build with PyInstaller
-        run: |
-          if [ -f "main.py" ]; then
-            MAIN_FILE="main.py"
-          elif [ -f "app.py" ]; then
-            MAIN_FILE="app.py"
-          elif [ -f "Colorado-Severe-Weather.py" ]; then
-            MAIN_FILE="Colorado-Severe-Weather.py"
-          else
-            echo "No main Python file found. Creating a placeholder..."
-            echo "print('CSWN Toolkit Placeholder')" > main.py
-            MAIN_FILE="main.py"
-          fi
+          # Get version
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            $version = "${{ github.event.inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}"
+          }
           
-          pyinstaller --noconfirm \
-            --onefile \
-            --windowed \
-            --hidden-import PyQt6.QtCore \
-            --hidden-import PyQt6.QtWidgets \
-            --hidden-import PyQt6.QtGui \
-            --hidden-import requests \
-            --hidden-import beautifulsoup4 \
-            --hidden-import PIL \
-            --name "${APP_NAME}-linux-${{ matrix.arch }}" \
-            "$MAIN_FILE"
-
-      - name: 📱 Create AppImage
-        run: |
-          # Download linuxdeploy
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy-x86_64.AppImage
+          Write-Host "Creating Windows package for version: $version"
           
-          # Create AppDir structure
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          New-Item -ItemType Directory -Force -Path "release"
           
-          # Copy binary
-          if [ -f "dist/${APP_NAME}-linux-${{ matrix.arch }}" ]; then
-            cp "dist/${APP_NAME}-linux-${{ matrix.arch }}" AppDir/usr/bin/
-            chmod +x "AppDir/usr/bin/${APP_NAME}-linux-${{ matrix.arch }}"
-          fi
+          # Copy executable
+          if (Test-Path "dist\${env:APP_NAME}.exe") {
+            Copy-Item "dist\${env:APP_NAME}.exe" -Destination "release\"
+          }
           
-          # Create desktop file
-          cat > AppDir/usr/share/applications/${APP_NAME}.desktop << EOF
-          [Desktop Entry]
-          Type=Application
-          Name=CSWN Toolkit
-          Comment=Colorado Severe Weather Network Toolkit
-          Exec=${APP_NAME}-linux-${{ matrix.arch }}
-          Icon=${APP_NAME}
-          Categories=Utility;Network;Weather;
-          Terminal=false
-          EOF
-          
-          # Create simple icon
-          convert -size 256x256 xc:blue -fill white -gravity center \
-            -pointsize 36 -annotate +0+0 "CSWN" AppDir/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png || \
-            echo "Icon creation skipped"
-          
-          # Build AppImage
-          ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage || echo "AppImage creation failed"
-
-      - name: 🗜️ Create Release Package
-        run: |
-          mkdir -p release
-          
-          # Copy executable if it exists
-          if [ -f "dist/${APP_NAME}-linux-${{ matrix.arch }}" ]; then
-            cp "dist/${APP_NAME}-linux-${{ matrix.arch }}" release/
-            chmod +x "release/${APP_NAME}-linux-${{ matrix.arch }}"
-          fi
-          
-          # Copy AppImage if created
-          find . -name "*.AppImage" -exec cp {} release/ \; || true
+          # Create batch launcher
+          @"
+          @echo off
+          title CSWN Toolkit
+          cd /d "%~dp0"
+          start "" "${env:APP_NAME}.exe"
+          "@ | Out-File -FilePath "release\Launch-CSWN-Toolkit.bat" -Encoding ASCII
           
           # Create README
-          cat > release/README.txt << EOF
-          CSWN Toolkit v${APP_VERSION} - Linux Build
-          ==========================================
+          @"
+          CSWN Toolkit $version - Windows
+          ==============================
           
-          Installation:
-          1. Make executable: chmod +x ${APP_NAME}-linux-${{ matrix.arch }}
-          2. Run: ./${APP_NAME}-linux-${{ matrix.arch }}
+          Colorado Severe Weather Network Toolkit
+          Author: W5ALC (Jon.W5ALC@gmail.com)
           
-          Or use the AppImage (if available):
-          1. Make executable: chmod +x *.AppImage
-          2. Run: ./CSWN*.AppImage
+          ## Installation
+          1. Extract this ZIP file to any folder
+          2. Run Launch-CSWN-Toolkit.bat or ${env:APP_NAME}.exe
           
-          Requirements:
-          - Modern Linux distribution
-          - X11 or Wayland display server
-          - Network connectivity for weather data
+          ## System Requirements
+          - Windows 10 or later
+          - Network connection for weather data
           
-          Build Info:
-          - Architecture: ${{ matrix.arch }}
-          - Python: ${{ env.PYTHON_VERSION }}
-          - Build Date: $(date)
-          - Commit: ${{ github.sha }}
-          EOF
+          ## Features
+          - Real-time Colorado weather alerts
+          - NWS forecast discussions and outlooks
+          - Live radar and satellite imagery
+          - Skywarn and amateur radio resources
+          - Fire, flood, and avalanche information
           
-          # Create tarball
-          tar -czf "${APP_NAME}-linux-${{ matrix.arch }}.tar.gz" -C release .
+          ## Support
+          Email: Jon.W5ALC@gmail.com
+          GitHub: https://github.com/${{ github.repository }}
+          
+          Build: ${{ github.sha }}
+          Date: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC")
+          "@ | Out-File -FilePath "release\README.txt" -Encoding UTF8
+          
+          # Create ZIP package
+          $zipName = "${env:APP_NAME}-$version-windows.zip"
+          Compress-Archive -Path "release\*" -DestinationPath $zipName
+          Write-Host "Created: $zipName"
 
-      - name: 📤 Upload Linux Artifacts
+      - name: 📤 Upload Windows Build
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}-build
-          path: |
-            ${{ env.APP_NAME }}-linux-${{ matrix.arch }}.tar.gz
-          retention-days: 90
+          name: windows-build
+          path: ${{ env.APP_NAME }}-*.zip
+          retention-days: 1
 
   # ============================================================================
   # MACOS BUILD
   # ============================================================================
   build-macos:
-    name: 🍎 Build macOS (${{ matrix.arch }})
+    name: 🍎 Build macOS
     runs-on: macos-latest
-    needs: quality-checks
-    if: always() && (needs.quality-checks.result == 'success' || needs.quality-checks.result == 'skipped')
-    strategy:
-      matrix:
-        arch: [arm64]
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -265,14 +149,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: 📦 Install Python Dependencies
+      - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow
-          pip install pyinstaller
+          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow pyinstaller
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: 🏗️ Build with PyInstaller
+      - name: 🏗️ Build Application
         run: |
           if [ -f "main.py" ]; then
             MAIN_FILE="main.py"
@@ -281,10 +164,12 @@ jobs:
           elif [ -f "Colorado-Severe-Weather.py" ]; then
             MAIN_FILE="Colorado-Severe-Weather.py"
           else
-            echo "No main Python file found. Creating a placeholder..."
-            echo "print('CSWN Toolkit Placeholder')" > main.py
+            echo "Creating placeholder main.py..."
+            echo "print('CSWN Toolkit - Please add your main application code')" > main.py
             MAIN_FILE="main.py"
           fi
+          
+          echo "Building from: $MAIN_FILE"
           
           pyinstaller --noconfirm \
             --onefile \
@@ -296,18 +181,27 @@ jobs:
             --hidden-import beautifulsoup4 \
             --hidden-import PIL \
             --osx-bundle-identifier "com.w5alc.cswn-toolkit" \
-            --target-arch ${{ matrix.arch }} \
-            --name "${APP_NAME}-macos-${{ matrix.arch }}" \
+            --name "${APP_NAME}" \
             "$MAIN_FILE"
 
       - name: 📱 Create macOS App Bundle
         run: |
+          # Get version
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+          
+          echo "Creating macOS app bundle for version: $VERSION"
+          
+          # Create app bundle structure
           mkdir -p "${APP_NAME}.app/Contents/MacOS"
           mkdir -p "${APP_NAME}.app/Contents/Resources"
           
-          # Copy executable if it exists
-          if [ -f "dist/${APP_NAME}-macos-${{ matrix.arch }}" ]; then
-            cp "dist/${APP_NAME}-macos-${{ matrix.arch }}" "${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
+          # Copy executable
+          if [ -f "dist/${APP_NAME}" ]; then
+            cp "dist/${APP_NAME}" "${APP_NAME}.app/Contents/MacOS/"
             chmod +x "${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
           fi
           
@@ -323,10 +217,12 @@ jobs:
               <string>com.w5alc.cswn-toolkit</string>
               <key>CFBundleName</key>
               <string>CSWN Toolkit</string>
+              <key>CFBundleDisplayName</key>
+              <string>CSWN Toolkit</string>
               <key>CFBundleVersion</key>
-              <string>${APP_VERSION}</string>
+              <string>${VERSION}</string>
               <key>CFBundleShortVersionString</key>
-              <string>${APP_VERSION}</string>
+              <string>${VERSION}</string>
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>LSMinimumSystemVersion</key>
@@ -335,70 +231,92 @@ jobs:
               <true/>
               <key>NSRequiresAquaSystemAppearance</key>
               <false/>
+              <key>NSAppTransportSecurity</key>
+              <dict>
+                  <key>NSAllowsArbitraryLoads</key>
+                  <true/>
+              </dict>
           </dict>
           </plist>
           EOF
 
-      - name: 💾 Create DMG
+      - name: 💾 Create DMG Package
         run: |
-          # Create temporary DMG directory
-          mkdir -p dmg_temp
+          # Get version
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+          
+          # Create DMG staging directory
+          mkdir -p dmg_staging
+          
+          # Copy app bundle
           if [ -d "${APP_NAME}.app" ]; then
-            cp -R "${APP_NAME}.app" dmg_temp/
+            cp -R "${APP_NAME}.app" dmg_staging/
           fi
           
           # Create Applications symlink
-          ln -s /Applications dmg_temp/Applications
+          ln -sf /Applications dmg_staging/Applications
           
           # Create README
-          cat > dmg_temp/README.txt << EOF
-          CSWN Toolkit v${APP_VERSION} - macOS Build
-          ==========================================
+          cat > dmg_staging/README.txt << EOF
+          CSWN Toolkit $VERSION - macOS
+          =============================
           
-          Installation:
+          Colorado Severe Weather Network Toolkit
+          Author: W5ALC (Jon.W5ALC@gmail.com)
+          
+          ## Installation
           1. Drag ${APP_NAME}.app to Applications folder
           2. Launch from Applications or Spotlight
           
-          Requirements:
+          ## System Requirements
           - macOS 10.15 (Catalina) or later
-          - Network connectivity for weather data
+          - Network connection for weather data
           
-          First Launch:
-          - You may need to right-click and select "Open" for unsigned apps
-          - Go to System Preferences > Security & Privacy if blocked
+          ## First Launch
+          - Right-click the app and select "Open" if blocked
+          - Go to System Preferences > Security & Privacy if needed
           
-          Build Info:
-          - Architecture: ${{ matrix.arch }}
-          - Python: ${{ env.PYTHON_VERSION }}
-          - Build Date: $(date)
-          - Commit: ${{ github.sha }}
+          ## Features
+          - Real-time Colorado weather alerts
+          - NWS forecast discussions and outlooks  
+          - Live radar and satellite imagery
+          - Skywarn and amateur radio resources
+          - Fire, flood, and avalanche information
+          
+          ## Support
+          Email: Jon.W5ALC@gmail.com
+          GitHub: https://github.com/${{ github.repository }}
+          
+          Build: ${{ github.sha }}
+          Date: $(date -u)
           EOF
           
-          # Create DMG using hdiutil (more reliable)
-          hdiutil create -volname "${APP_NAME} v${APP_VERSION}" \
-            -srcfolder "dmg_temp" \
+          # Create DMG
+          DMG_NAME="${APP_NAME}-${VERSION}-macos.dmg"
+          hdiutil create -volname "CSWN Toolkit $VERSION" \
+            -srcfolder dmg_staging \
             -ov -format UDZO \
-            "${APP_NAME}-macos-${{ matrix.arch }}.dmg"
+            "$DMG_NAME"
+          
+          echo "Created: $DMG_NAME"
 
-      - name: 📤 Upload macOS Artifacts
+      - name: 📤 Upload macOS Build
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}-build
-          path: |
-            ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg
-          retention-days: 90
+          name: macos-build
+          path: ${{ env.APP_NAME }}-*.dmg
+          retention-days: 1
 
   # ============================================================================
-  # WINDOWS BUILD
+  # LINUX BUILD
   # ============================================================================
-  build-windows:
-    name: 🪟 Build Windows (${{ matrix.arch }})
-    runs-on: windows-latest
-    needs: quality-checks
-    if: always() && (needs.quality-checks.result == 'success' || needs.quality-checks.result == 'skipped')
-    strategy:
-      matrix:
-        arch: [x64]  # Simplified to x64 only for reliability
+  build-linux:
+    name: 🐧 Build Linux
+    runs-on: ubuntu-22.04
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -407,157 +325,154 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          architecture: ${{ matrix.arch }}
 
-      - name: 📦 Install Python Dependencies
+      - name: 🔧 Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-xinerama0 \
+            libfontconfig1 \
+            libfreetype6 \
+            libx11-6 \
+            libxext6 \
+            libxfixes3 \
+            libxi6 \
+            libxrender1 \
+            libxrandr2 \
+            libxss1 \
+            libxtst6
+
+      - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow
-          pip install pyinstaller
-          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow pyinstaller
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: 🏗️ Build with PyInstaller
+      - name: 🏗️ Build Application
         run: |
-          $mainFile = "main.py"
-          if (Test-Path "main.py") {
-            $mainFile = "main.py"
-          } elseif (Test-Path "app.py") {
-            $mainFile = "app.py"
-          } elseif (Test-Path "Colorado-Severe-Weather.py") {
-            $mainFile = "Colorado-Severe-Weather.py"
-          } else {
-            Write-Host "No main Python file found. Creating a placeholder..."
-            "print('CSWN Toolkit Placeholder')" | Out-File -FilePath "main.py" -Encoding UTF8
-            $mainFile = "main.py"
-          }
+          if [ -f "main.py" ]; then
+            MAIN_FILE="main.py"
+          elif [ -f "app.py" ]; then
+            MAIN_FILE="app.py"
+          elif [ -f "Colorado-Severe-Weather.py" ]; then
+            MAIN_FILE="Colorado-Severe-Weather.py"
+          else
+            echo "Creating placeholder main.py..."
+            echo "print('CSWN Toolkit - Please add your main application code')" > main.py
+            MAIN_FILE="main.py"
+          fi
           
-          pyinstaller --noconfirm `
-            --onefile `
-            --windowed `
-            --hidden-import PyQt6.QtCore `
-            --hidden-import PyQt6.QtWidgets `
-            --hidden-import PyQt6.QtGui `
-            --hidden-import requests `
-            --hidden-import beautifulsoup4 `
-            --hidden-import PIL `
-            --name "${env:APP_NAME}-windows-${{ matrix.arch }}" `
-            $mainFile
+          echo "Building from: $MAIN_FILE"
+          
+          pyinstaller --noconfirm \
+            --onefile \
+            --windowed \
+            --hidden-import PyQt6.QtCore \
+            --hidden-import PyQt6.QtWidgets \
+            --hidden-import PyQt6.QtGui \
+            --hidden-import requests \
+            --hidden-import beautifulsoup4 \
+            --hidden-import PIL \
+            --name "${APP_NAME}" \
+            "$MAIN_FILE"
 
-      - name: 📦 Create Portable Package
+      - name: 📦 Create Linux Package
         run: |
-          New-Item -ItemType Directory -Force -Path "portable"
-          
-          $exeName = "${env:APP_NAME}-windows-${{ matrix.arch }}.exe"
-          if (Test-Path "dist\$exeName") {
-            Copy-Item "dist\$exeName" -Destination "portable\"
-          }
-          
-          # Create batch launcher
-          @"
-          @echo off
-          cd /d "%~dp0"
-          start "" "$exeName"
-          "@ | Out-File -FilePath "portable\Launch-CSWN-Toolkit.bat" -Encoding ASCII
-          
-          # Create README
-          @"
-          CSWN Toolkit v${env:APP_VERSION} - Windows Build
-          ==============================================
-          
-          Portable Installation:
-          1. Extract to desired folder
-          2. Run Launch-CSWN-Toolkit.bat or the .exe directly
-          
-          Requirements:
-          - Windows 10 or later
-          - Network connectivity for weather data
-          
-          Troubleshooting:
-          - If Windows Defender blocks: Right-click > Properties > Unblock
-          - Run as Administrator if needed
-          
-          Build Info:
-          - Architecture: ${{ matrix.arch }}
-          - Python: ${env:PYTHON_VERSION}
-          - Build Date: $(Get-Date)
-          - Commit: ${{ github.sha }}
-          "@ | Out-File -FilePath "portable\README.txt" -Encoding UTF8
-          
-          # Create ZIP
-          Compress-Archive -Path "portable\*" -DestinationPath "${env:APP_NAME}-windows-${{ matrix.arch }}-portable.zip"
-
-      - name: 📤 Upload Windows Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-${{ matrix.arch }}-build
-          path: |
-            ${{ env.APP_NAME }}-windows-${{ matrix.arch }}-portable.zip
-          retention-days: 90
-
-  # ============================================================================
-  # RELEASE CREATION
-  # ============================================================================
-
-
-
-- name: 📦 Create Release Package
-        run: |
-          # Get version from tag or input
+          # Get version
           if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
           else
             VERSION="${{ github.ref_name }}"
           fi
           
-          echo "Creating release for version: $VERSION"
+          echo "Creating Linux package for version: $VERSION"
           
-          # Create release directory
           mkdir -p release
           
-          # Copy executable if it exists
+          # Copy executable
           if [ -f "dist/${APP_NAME}" ]; then
             cp "dist/${APP_NAME}" release/
             chmod +x "release/${APP_NAME}"
-          elif [ -f "dist/${APP_NAME}.exe" ]; then
-            cp "dist/${APP_NAME}.exe" release/
           fi
           
-          # Create simple README
+          # Create launch script
+          cat > release/launch-cswn-toolkit.sh << 'EOF'
+          #!/bin/bash
+          cd "$(dirname "$0")"
+          exec ./${APP_NAME} "$@"
+          EOF
+          chmod +x release/launch-cswn-toolkit.sh
+          
+          # Create README
           cat > release/README.txt << EOF
-          CSWN Toolkit $VERSION
-          ====================
+          CSWN Toolkit $VERSION - Linux
+          =============================
           
           Colorado Severe Weather Network Toolkit
           Author: W5ALC (Jon.W5ALC@gmail.com)
           
-          ## Quick Start
-          1. Extract this package
-          2. Run the executable file
-          3. Enjoy real-time Colorado weather data!
+          ## Installation
+          1. Extract this archive to any folder
+          2. Run: ./launch-cswn-toolkit.sh
+          Or: ./${APP_NAME}
+          
+          ## System Requirements
+          - Modern Linux distribution
+          - X11 or Wayland display server
+          - Network connection for weather data
           
           ## Features
-          - Real-time weather alerts
-          - NWS forecasts and discussions
+          - Real-time Colorado weather alerts
+          - NWS forecast discussions and outlooks
           - Live radar and satellite imagery
-          - Skywarn resources
-          - Amateur radio integration
+          - Skywarn and amateur radio resources
+          - Fire, flood, and avalanche information
           
           ## Support
           Email: Jon.W5ALC@gmail.com
           GitHub: https://github.com/${{ github.repository }}
           
           Build: ${{ github.sha }}
-          Date: $(date)
+          Date: $(date -u)
           EOF
           
-          # Create the release package
-          cd release
-          if [ -f "${APP_NAME}.exe" ]; then
-            zip -r "../${APP_NAME}-${VERSION}-windows.zip" .
-          else
-            tar -czf "../${APP_NAME}-${VERSION}-linux.tar.gz" .
-          fi
-          cd ..
+          # Create tarball
+          TAR_NAME="${APP_NAME}-${VERSION}-linux.tar.gz"
+          tar -czf "$TAR_NAME" -C release .
+          echo "Created: $TAR_NAME"
+
+      - name: 📤 Upload Linux Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: ${{ env.APP_NAME }}-*.tar.gz
+          retention-days: 1
+
+  # ============================================================================
+  # CREATE RELEASE
+  # ============================================================================
+  create-release:
+    name: 🚀 Create Release
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos, build-linux]
+    permissions:
+      contents: write
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📁 Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: 📋 List Downloaded Files
+        run: |
+          echo "=== Downloaded artifacts ==="
+          find artifacts/ -type f -name "*" -exec ls -la {} \;
 
       - name: 📝 Generate Release Notes
         id: release_notes
@@ -572,51 +487,74 @@ jobs:
           cat > RELEASE_NOTES.md << EOF
           # 🌪️ CSWN Toolkit $VERSION
           
-          **Colorado Severe Weather Network Toolkit**
+          **Colorado Severe Weather Network Toolkit**  
+          *Real-time weather monitoring for Colorado*
           
-          ## What's New
-          - Latest build with updated dependencies
-          - Improved stability and performance
-          - Enhanced weather data integration
+          **Author**: W5ALC (Jon.W5ALC@gmail.com)  
+          **Version**: $VERSION  
+          **Build Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           
-          ## Download
-          Choose the appropriate package for your system:
-          - **Windows**: Download the .zip file
-          - **Linux**: Download the .tar.gz file
+          ## 📦 Downloads
           
-          ## Quick Start
-          1. Download and extract the package
-          2. Run the executable
-          3. Start monitoring Colorado weather!
+          Choose the appropriate package for your operating system:
           
-          ## Features
-          - 🚨 Real-time weather alerts
-          - 📊 NWS forecast discussions
-          - 🛰️ Live radar imagery
-          - 📻 Skywarn resources
-          - 🔥 Fire and flood information
+          ### 🪟 Windows
+          - **File**: \`${APP_NAME}-${VERSION}-windows.zip\`
+          - **Requirements**: Windows 10 or later
+          - **Installation**: Extract and run
           
-          ## System Requirements
-          - **Windows**: Windows 10 or later
-          - **Linux**: Modern Linux distribution with GUI
-          - Network connection for weather data
+          ### 🍎 macOS
+          - **File**: \`${APP_NAME}-${VERSION}-macos.dmg\`
+          - **Requirements**: macOS 10.15 (Catalina) or later
+          - **Installation**: Drag to Applications folder
           
-          ## Support
-          📧 **Email**: Jon.W5ALC@gmail.com  
-          🐛 **Issues**: [GitHub Issues](https://github.com/${{ github.repository }}/issues)
+          ### 🐧 Linux
+          - **File**: \`${APP_NAME}-${VERSION}-linux.tar.gz\`
+          - **Requirements**: Modern Linux with GUI
+          - **Installation**: Extract and run executable
+          
+          ## ✨ Features
+          
+          - 🚨 **Real-time Alerts**: Colorado weather warnings and watches
+          - 📊 **NWS Data**: Forecast discussions and outlooks
+          - 🛰️ **Live Imagery**: Radar and satellite feeds
+          - 📻 **Skywarn**: Amateur radio integration
+          - 🔥 **Multi-hazard**: Fire, flood, and avalanche information
+          - 🎨 **Customizable**: Multiple themes and settings
+          - 🌐 **Web Integration**: Built-in weather resource browser
+          
+          ## 🚀 Quick Start
+          
+          1. Download the appropriate package for your system
+          2. Extract/install the application
+          3. Run the executable
+          4. Start monitoring Colorado weather conditions!
+          
+          ## 📞 Support
+          
+          - 📧 **Email**: Jon.W5ALC@gmail.com
+          - 🐛 **Issues**: [GitHub Issues](https://github.com/${{ github.repository }}/issues)
+          - 📖 **Documentation**: [Repository Wiki](https://github.com/${{ github.repository }}/wiki)
+          
+          ## 🔧 Technical Details
+          
+          - **Python Version**: ${{ env.PYTHON_VERSION }}
+          - **GUI Framework**: PyQt6
+          - **Build System**: PyInstaller
+          - **Commit**: ${{ github.sha }}
           
           ---
-          **Build Info**: ${{ github.sha }} | $(date -u)
+          
+          *This release was automatically built and tested on GitHub Actions.*
           EOF
           
-          # Set output for GitHub Actions
           {
             echo 'RELEASE_NOTES<<EOF'
             cat RELEASE_NOTES.md
             echo EOF
           } >> "$GITHUB_OUTPUT"
 
-      - name: 🏷️ Create Release
+      - name: 🏷️ Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version || github.ref_name }}
@@ -625,37 +563,22 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            *.zip
-            *.tar.gz
+            artifacts/**/*.zip
+            artifacts/**/*.dmg
+            artifacts/**/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: ✅ Success Summary
+      - name: 🎉 Release Summary
         run: |
-          echo "🎉 Release completed successfully!"
-          echo "📦 Package created and uploaded"
-          echo "🔗 Check: https://github.com/${{ github.repository }}/releases"
-
-
-  # ============================================================================
-  # DEPLOYMENT NOTIFICATION  
-  # ============================================================================
-  notify-deployment:
-    name: 📢 Deployment Status
-    runs-on: ubuntu-latest
-    needs: [create-release]
-    if: always() && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true')
-    steps:
-      - name: 📧 Success Notification
-        if: needs.create-release.result == 'success'
-        run: |
-          echo "✅ CSWN Toolkit v${APP_VERSION} successfully released!"
-          echo "📦 All platform builds completed successfully" 
-          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
-
-      - name: 🚨 Failure Notification  
-        if: needs.create-release.result == 'failure'
-        run: |
-          echo "❌ CSWN Toolkit v${APP_VERSION} release failed!"
-          echo "🔍 Check the workflow logs for details"
-          echo "📞 Contact: Jon.W5ALC@gmail.com"
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "🎉 CSWN Toolkit $VERSION released successfully!"
+          echo ""
+          echo "📦 Packages created:"
+          echo "  🪟 Windows: ${APP_NAME}-${VERSION}-windows.zip"
+          echo "  🍎 macOS:   ${APP_NAME}-${VERSION}-macos.dmg"  
+          echo "  🐧 Linux:   ${APP_NAME}-${VERSION}-linux.tar.gz"
+          echo ""
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/$VERSION"
+          echo ""
+          echo "📧 Support: Jon.W5ALC@gmail.com"
