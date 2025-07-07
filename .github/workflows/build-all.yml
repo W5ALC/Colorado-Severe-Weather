@@ -497,93 +497,119 @@ jobs:
   # ============================================================================
   # RELEASE CREATION
   # ============================================================================
-  create-release:
-    name: 🚀 Create Release
-    runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-windows]
-    if: |
-      always() && 
-      (needs.build-linux.result == 'success' || needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
 
-      - name: 📁 Download All Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
 
-      - name: 📝 List Available Artifacts
+
+- name: 📦 Create Release Package
         run: |
-          echo "Available artifacts:"
-          find artifacts/ -type f -name "*" || echo "No artifacts found"
+          # Get version from tag or input
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+          
+          echo "Creating release for version: $VERSION"
+          
+          # Create release directory
+          mkdir -p release
+          
+          # Copy executable if it exists
+          if [ -f "dist/${APP_NAME}" ]; then
+            cp "dist/${APP_NAME}" release/
+            chmod +x "release/${APP_NAME}"
+          elif [ -f "dist/${APP_NAME}.exe" ]; then
+            cp "dist/${APP_NAME}.exe" release/
+          fi
+          
+          # Create simple README
+          cat > release/README.txt << EOF
+          CSWN Toolkit $VERSION
+          ====================
+          
+          Colorado Severe Weather Network Toolkit
+          Author: W5ALC (Jon.W5ALC@gmail.com)
+          
+          ## Quick Start
+          1. Extract this package
+          2. Run the executable file
+          3. Enjoy real-time Colorado weather data!
+          
+          ## Features
+          - Real-time weather alerts
+          - NWS forecasts and discussions
+          - Live radar and satellite imagery
+          - Skywarn resources
+          - Amateur radio integration
+          
+          ## Support
+          Email: Jon.W5ALC@gmail.com
+          GitHub: https://github.com/${{ github.repository }}
+          
+          Build: ${{ github.sha }}
+          Date: $(date)
+          EOF
+          
+          # Create the release package
+          cd release
+          if [ -f "${APP_NAME}.exe" ]; then
+            zip -r "../${APP_NAME}-${VERSION}-windows.zip" .
+          else
+            tar -czf "../${APP_NAME}-${VERSION}-linux.tar.gz" .
+          fi
+          cd ..
 
       - name: 📝 Generate Release Notes
         id: release_notes
         run: |
+          # Get version
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+          
           cat > RELEASE_NOTES.md << EOF
-          # CSWN Toolkit v${APP_VERSION} Release
+          # 🌪️ CSWN Toolkit $VERSION
           
-          ## 🌪️ Colorado Severe Weather Network Toolkit
+          **Colorado Severe Weather Network Toolkit**
           
-          **Author**: W5ALC (Jon.W5ALC@gmail.com)  
-          **Version**: ${APP_VERSION}  
-          **Build Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")  
-          **Commit**: ${{ github.sha }}
+          ## What's New
+          - Latest build with updated dependencies
+          - Improved stability and performance
+          - Enhanced weather data integration
           
-          ## 📦 Available Downloads
+          ## Download
+          Choose the appropriate package for your system:
+          - **Windows**: Download the .zip file
+          - **Linux**: Download the .tar.gz file
           
-          Choose the appropriate version for your operating system:
+          ## Quick Start
+          1. Download and extract the package
+          2. Run the executable
+          3. Start monitoring Colorado weather!
           
-          ### Windows
-          - **Portable**: Extract and run, no installation required
-          - **Architecture**: x64
+          ## Features
+          - 🚨 Real-time weather alerts
+          - 📊 NWS forecast discussions
+          - 🛰️ Live radar imagery
+          - 📻 Skywarn resources
+          - 🔥 Fire and flood information
           
-          ### macOS  
-          - **DMG**: Drag-and-drop installation
-          - **Architecture**: Apple Silicon (arm64)
+          ## System Requirements
+          - **Windows**: Windows 10 or later
+          - **Linux**: Modern Linux distribution with GUI
+          - Network connection for weather data
           
-          ### Linux
-          - **Tarball**: Portable executable
-          - **Architecture**: x86_64
+          ## Support
+          📧 **Email**: Jon.W5ALC@gmail.com  
+          🐛 **Issues**: [GitHub Issues](https://github.com/${{ github.repository }}/issues)
           
-          ## ✨ Features
-          
-          - 🚨 Real-time Colorado weather alerts
-          - 📊 NWS forecast discussions and outlooks  
-          - 🛰️ Live radar and satellite imagery
-          - 📻 Skywarn and amateur radio resources
-          - 🔥 Fire, flood, and avalanche information
-          - 🎨 Multiple themes and configurable settings
-          - 🌐 Integrated web browser for weather resources
-          
-          ## 🛠️ System Requirements
-          
-          ### Windows
-          - Windows 10 or later
-          - 174 MB disk space
-          
-          ### macOS
-          - macOS 10.15 (Catalina) or later  
-          - 	158 MB disk space
-          
-          ### Linux
-          - Modern Linux distribution
-          - X11 or Wayland display server
-          - 227 MB disk space
-          
-          ## 📞 Support
-          
-          For support, questions, or bug reports:
-          - Email: Jon.W5ALC@gmail.com
-          - Repository: [GitHub Issues](https://github.com/${{ github.repository }}/issues)
-          
-          ## 🏗️ Build Information
-          
-          This release was automatically built and tested using GitHub Actions.
-          All builds include security scanning and code quality checks.
+          ---
+          **Build Info**: ${{ github.sha }} | $(date -u)
           EOF
           
+          # Set output for GitHub Actions
           {
             echo 'RELEASE_NOTES<<EOF'
             cat RELEASE_NOTES.md
@@ -593,18 +619,23 @@ jobs:
       - name: 🏷️ Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "CSWN Toolkit v${{ env.APP_VERSION }}"
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          name: "CSWN Toolkit ${{ github.event.inputs.version || github.ref_name }}"
           body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
           draft: false
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          prerelease: false
           files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.dmg  
-            artifacts/**/*.zip
-            artifacts/**/*.exe
+            *.zip
+            *.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ✅ Success Summary
+        run: |
+          echo "🎉 Release completed successfully!"
+          echo "📦 Package created and uploaded"
+          echo "🔗 Check: https://github.com/${{ github.repository }}/releases"
+
 
   # ============================================================================
   # DEPLOYMENT NOTIFICATION  
