@@ -503,7 +503,6 @@ jobs:
     needs: [build-linux, build-macos, build-windows]
     if: |
       always() && 
-      (startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true') &&
       (needs.build-linux.result == 'success' || needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
     steps:
       - name: 📥 Checkout Code
@@ -542,7 +541,7 @@ jobs:
           
           ### macOS  
           - **DMG**: Drag-and-drop installation
-          - **Architectures**: Intel (x86_64), Apple Silicon (arm64)
+          - **Architecture**: Apple Silicon (arm64)
           
           ### Linux
           - **Tarball**: Portable executable
@@ -562,16 +561,16 @@ jobs:
           
           ### Windows
           - Windows 10 or later
-          - 50MB disk space
+          - 174 MB disk space
           
           ### macOS
           - macOS 10.15 (Catalina) or later  
-          - 100MB disk space
+          - 	158 MB disk space
           
           ### Linux
           - Modern Linux distribution
           - X11 or Wayland display server
-          - 50MB disk space
+          - 227 MB disk space
           
           ## 📞 Support
           
