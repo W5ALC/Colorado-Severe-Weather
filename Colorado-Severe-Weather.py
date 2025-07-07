@@ -11,6 +11,8 @@ Features:
 - Improved script generation and navigation
 - Better settings management
 - Enhanced export capabilities
+
+pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow
 """
 
 import sys
