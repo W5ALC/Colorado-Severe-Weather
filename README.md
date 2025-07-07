@@ -1,7 +1,9 @@
 
 # Colorado Severe Weather Network Toolkit
 
-![CSWN Interface](https://github.com/W5ALC/Pictures/blob/main/toolkit.png)
+![CSWN Interface Dark Mode](CSWN-Main-Dark.png)
+
+![CSWN Interface Light Mode](CSWN-Main.png)
 
 ## 🌀 Overview
 
@@ -10,6 +12,10 @@
 ---
 
 ## 🧰 Features
+
+- **Net control script generator**  
+  Easily generate a net script for the current day.
+
 
 - **Hazardous Weather Outlooks**  
   One-click access to HWO pages for Grand Junction, Boulder, Pueblo, Cheyenne, and Goodland offices.
@@ -92,9 +98,9 @@ Or use the AppImage (if available):
 
 ## 📸 Interface Preview
 
-Screenshots of the toolkit in action:
+Screenshots of the program in action:
 
-![Main Menu](https://github.com/W5ALC/Pictures/blob/main/toolkit.png))
+![Main Menu](https://github.com/W5ALC/Pictures/blob/main/toolkit.png)
 ![Actice Alerts](https://github.com/W5ALC/Pictures/blob/main/active-alert.png)
 ![GOES Viewer](GOES-19-zoom.png)
 ![SPC Mesoscale Discussions](https://github.com/W5ALC/Pictures/blob/main/mesoscale-discussions.png))
