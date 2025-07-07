@@ -129,7 +129,7 @@ jobs:
       - name: 📦 Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 requests beautifulsoup4 pillow
+          pip install PyQt6 reqPyQt6-WebEngine uests beautifulsoup4 pillow
           pip install pyinstaller
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
@@ -139,8 +139,8 @@ jobs:
             MAIN_FILE="main.py"
           elif [ -f "app.py" ]; then
             MAIN_FILE="app.py"
-          elif [ -f "cswn_toolkit.py" ]; then
-            MAIN_FILE="cswn_toolkit.py"
+          elif [ -f "Colorado-Severe-Weather.py" ]; then
+            MAIN_FILE="Colorado-Severe-Weather.py"
           else
             echo "No main Python file found. Creating a placeholder..."
             echo "print('CSWN Toolkit Placeholder')" > main.py
@@ -278,8 +278,8 @@ jobs:
             MAIN_FILE="main.py"
           elif [ -f "app.py" ]; then
             MAIN_FILE="app.py"
-          elif [ -f "cswn_toolkit.py" ]; then
-            MAIN_FILE="cswn_toolkit.py"
+          elif [ -f "Colorado-Severe-Weather.py" ]; then
+            MAIN_FILE="Colorado-Severe-Weather.py"
           else
             echo "No main Python file found. Creating a placeholder..."
             echo "print('CSWN Toolkit Placeholder')" > main.py
@@ -423,8 +423,8 @@ jobs:
             $mainFile = "main.py"
           } elseif (Test-Path "app.py") {
             $mainFile = "app.py"
-          } elseif (Test-Path "cswn_toolkit.py") {
-            $mainFile = "cswn_toolkit.py"
+          } elseif (Test-Path "Colorado-Severe-Weather.py") {
+            $mainFile = "Colorado-Severe-Weather.py"
           } else {
             Write-Host "No main Python file found. Creating a placeholder..."
             "print('CSWN Toolkit Placeholder')" | Out-File -FilePath "main.py" -Encoding UTF8
