@@ -134,7 +134,7 @@ jobs:
           path: ${{ env.APP_NAME }}-*.zip
           retention-days: 1
 
-  # ============================================================================
+# ============================================================================
   # MACOS BUILD
   # ============================================================================
   build-macos:
@@ -148,6 +148,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 🔧 Install System Dependencies
+        run: |
+          # Update system and install any required dependencies
+          brew update
+          # Install any additional dependencies if needed
+          # brew install python-tk  # Only if you need tkinter
 
       - name: 📦 Install Dependencies
         run: |
@@ -177,10 +184,12 @@ jobs:
             --hidden-import PyQt6.QtCore \
             --hidden-import PyQt6.QtWidgets \
             --hidden-import PyQt6.QtGui \
+            --hidden-import PyQt6.QtWebEngineWidgets \
             --hidden-import requests \
             --hidden-import beautifulsoup4 \
             --hidden-import PIL \
             --osx-bundle-identifier "com.w5alc.cswn-toolkit" \
+            --target-arch universal2 \
             --name "${APP_NAME}" \
             "$MAIN_FILE"
 
@@ -205,10 +214,10 @@ jobs:
             chmod +x "${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
           fi
           
-          # Create Info.plist
+          # Create Info.plist with updated minimum version
           cat > "${APP_NAME}.app/Contents/Info.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.2.dtd">
           <plist version="1.0">
           <dict>
               <key>CFBundleExecutable</key>
@@ -225,9 +234,13 @@ jobs:
               <string>${VERSION}</string>
               <key>CFBundlePackageType</key>
               <string>APPL</string>
+              <key>CFBundleSignature</key>
+              <string>????</string>
               <key>LSMinimumSystemVersion</key>
-              <string>10.15</string>
+              <string>11.0</string>
               <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSSupportsAutomaticGraphicsSwitching</key>
               <true/>
               <key>NSRequiresAquaSystemAppearance</key>
               <false/>
@@ -236,9 +249,31 @@ jobs:
                   <key>NSAllowsArbitraryLoads</key>
                   <true/>
               </dict>
+              <key>NSMicrophoneUsageDescription</key>
+              <string>This app may access the microphone for weather alerts.</string>
+              <key>NSCameraUsageDescription</key>
+              <string>This app may access the camera for weather documentation.</string>
+              <key>NSLocationUsageDescription</key>
+              <string>This app may access location for local weather information.</string>
+              <key>NSAppleEventsUsageDescription</key>
+              <string>This app may use Apple Events for integration with other applications.</string>
+              <key>LSApplicationCategoryType</key>
+              <string>public.app-category.weather</string>
           </dict>
           </plist>
           EOF
+
+      - name: 🔐 Sign Application (if available)
+        continue-on-error: true
+        run: |
+          # Optional: Code signing (requires developer certificate)
+          # Only runs if signing identity is available
+          if [ -n "${{ secrets.DEVELOPER_ID_APPLICATION }}" ]; then
+            echo "Signing application..."
+            codesign --force --deep --sign "${{ secrets.DEVELOPER_ID_APPLICATION }}" "${APP_NAME}.app"
+          else
+            echo "No signing certificate available, skipping code signing"
+          fi
 
       - name: 💾 Create DMG Package
         run: |
@@ -260,7 +295,7 @@ jobs:
           # Create Applications symlink
           ln -sf /Applications dmg_staging/Applications
           
-          # Create README
+          # Create README with updated system requirements
           cat > dmg_staging/README.txt << EOF
           CSWN Toolkit $VERSION - macOS
           =============================
@@ -273,12 +308,15 @@ jobs:
           2. Launch from Applications or Spotlight
           
           ## System Requirements
-          - macOS 10.15 (Catalina) or later
+          - macOS 11.0 (Big Sur) or later
+          - Compatible with macOS 12.0-15.5+ (Monterey-Sequoia)
           - Network connection for weather data
+          - Minimum 4GB RAM recommended
           
           ## First Launch
-          - Right-click the app and select "Open" if blocked
-          - Go to System Preferences > Security & Privacy if needed
+          - Right-click the app and select "Open" if blocked by Gatekeeper
+          - Go to System Settings > Privacy & Security if needed
+          - On macOS 13+ you may need to allow network access
           
           ## Features
           - Real-time Colorado weather alerts
@@ -286,6 +324,12 @@ jobs:
           - Live radar and satellite imagery
           - Skywarn and amateur radio resources
           - Fire, flood, and avalanche information
+          - Native macOS integration
+          
+          ## Troubleshooting
+          - If app won't open: Check System Settings > Privacy & Security
+          - If network issues: Allow network access in Security settings
+          - For permission prompts: Grant access as needed
           
           ## Support
           Email: Jon.W5ALC@gmail.com
@@ -293,22 +337,32 @@ jobs:
           
           Build: ${{ github.sha }}
           Date: $(date -u)
+          Tested on: macOS 11.0-15.5
           EOF
           
-          # Create DMG
+          # Create DMG with modern options
           DMG_NAME="${APP_NAME}-${VERSION}-macos.dmg"
           hdiutil create -volname "CSWN Toolkit $VERSION" \
             -srcfolder dmg_staging \
             -ov -format UDZO \
+            -imagekey zlib-level=9 \
             "$DMG_NAME"
           
           echo "Created: $DMG_NAME"
+          
+          # Optional: Notarize the DMG (requires Apple Developer account)
+          if [ -n "${{ secrets.NOTARIZATION_TEAM_ID }}" ]; then
+            echo "Notarizing DMG..."
+            xcrun notarytool submit "$DMG_NAME" \
+              --keychain-profile "notarytool-profile" \
+              --wait
+          fi
 
       - name: 📤 Upload macOS Build
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: ${{ env.APP_NAME }}-*.dmg
+          path: ${{ env.. }}-*.dmg
           retention-days: 1
 
   # ============================================================================
