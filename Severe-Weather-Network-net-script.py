@@ -22,6 +22,7 @@ import logging
 import requests
 import time
 import webbrowser
+import threading
 
 from bs4 import BeautifulSoup
 import re
@@ -376,7 +377,184 @@ def is_net_day() -> bool:
     """Check if today is a net day"""
     return get_current_mountain_time()['day'] in Config.NET_DAYS
 
+class AlertsDisplayDialog(QDialog):
+    def __init__(self, parent, url, window_title, theme, font_size, auto_refresh_mins):
+        super().__init__(parent)
+        self.url = url
+        self.window_title = window_title
+        self.theme = theme
+        self.font_size = font_size
+        self.auto_refresh_mins = auto_refresh_mins
+        self.entries = []
+        self.last_update = ""
 
+        self.setWindowTitle(window_title)
+        self.resize(950, 700)
+        self.setup_ui()
+        self.load_alerts()
+        self.setup_auto_refresh()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+
+        # Hint label
+        hint_label = QLabel("Tip: Search for specific keywords.")
+        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(hint_label)
+
+        # Search/filter section
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Filter alerts:"))
+
+        self.search_edit = QLineEdit()
+        self.search_edit.textChanged.connect(self.apply_filter)
+        search_layout.addWidget(self.search_edit)
+
+        refresh_btn = QPushButton("Refresh Now")
+        refresh_btn.clicked.connect(self.load_alerts)
+        search_layout.addWidget(refresh_btn)
+
+        layout.addLayout(search_layout)
+
+        # Status label
+        self.status_label = QLabel("Loading alerts...")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
+
+        # Text area
+        self.text_area = QTextEdit()
+        self.text_area.setReadOnly(True)
+        self.text_area.setFont(QFont("monospace", self.font_size))
+        layout.addWidget(self.text_area)
+
+        # Button layout
+        button_layout = QHBoxLayout()
+
+        copy_btn = QPushButton("Copy All")
+        copy_btn.clicked.connect(self.copy_all)
+        button_layout.addWidget(copy_btn)
+
+        save_btn = QPushButton("Save As...")
+        save_btn.clicked.connect(self.save_as)
+        button_layout.addWidget(save_btn)
+
+        button_layout.addStretch()
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        button_layout.addWidget(close_btn)
+
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+        self.apply_theme()
+
+    def apply_theme(self):
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {self.theme['bg']};
+                color: {self.theme['fg']};
+            }}
+            QTextEdit {{
+                background-color: {self.theme['bg']};
+                color: {self.theme['fg']};
+                border: 1px solid {self.theme['accent']};
+            }}
+            QLineEdit {{
+                background-color: {self.theme['entry_bg']};
+                color: {self.theme['entry_fg']};
+                border: 1px solid {self.theme['accent']};
+                padding: 5px;
+            }}
+            QPushButton {{
+                background-color: {self.theme['button_bg']};
+                color: {self.theme['button_fg']};
+                border: 1px solid {self.theme['accent']};
+                padding: 5px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.theme['button_active_bg']};
+                color: {self.theme['button_active_fg']};
+            }}
+            QLabel {{
+                color: {self.theme['accent']};
+            }}
+        """)
+
+    def setup_auto_refresh(self):
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.load_alerts)
+        self.timer.start(self.auto_refresh_mins * 60000)  # Convert to milliseconds
+
+    def load_alerts(self):
+        self.status_label.setText("Loading alerts...")
+        self.fetcher = AlertsFetcher(self.url)
+        self.fetcher.alerts_ready.connect(self.on_alerts_ready)
+        self.fetcher.error_occurred.connect(self.on_error)
+        self.fetcher.start()
+
+    def on_alerts_ready(self, entries):
+        self.entries = entries
+        self.last_update = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.apply_filter()
+
+    def on_error(self, error):
+        self.entries = []
+        self.last_update = ""
+        self.text_area.setPlainText(f"Error fetching alerts: {error}")
+        self.status_label.setText("Error loading alerts")
+
+    def apply_filter(self):
+        term = self.search_edit.text().lower()
+        grouped_alerts = {}
+
+        for entry in self.entries:
+            title_elem = entry.find("{http://www.w3.org/2005/Atom}title")
+            summary_elem = entry.find("{http://www.w3.org/2005/Atom}summary")
+            link_elem = entry.find("{http://www.w3.org/2005/Atom}link")
+            area_elem = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
+
+            if title_elem is not None and summary_elem is not None:
+                title = title_elem.text
+                summary = summary_elem.text
+                link = link_elem.attrib.get("href") if link_elem is not None else ""
+
+                if area_elem is not None and area_elem.text:
+                    counties = [c.strip() for c in area_elem.text.split(';')]
+                else:
+                    counties = ["Active NWS Alerts"]
+
+                if term in title.lower() or term in summary.lower():
+                    for county in counties:
+                        if county not in grouped_alerts:
+                            grouped_alerts[county] = []
+                        grouped_alerts[county].append((title, summary, link))
+
+        # Build display text
+        display_text = ""
+        for county, alerts in grouped_alerts.items():
+            display_text += f"=== {county} ===\n"
+            for title, summary, link in alerts:
+                display_text += f"Title: {title}\n"
+                display_text += f"Summary: {summary}\n"
+                display_text += f"Link: {link}\n\n"
+
+        self.text_area.setPlainText(display_text)
+        self.status_label.setText(f"Alerts loaded. Last update: {self.last_update}")
+
+    def copy_all(self):
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.text_area.toPlainText())
+
+    def save_as(self):
+        filename, _ = QFileDialog.getSaveFileName(self, "Save As", "", "Text Files (*.txt);;All Files (*)")
+        if filename:
+            try:
+                with open(filename, 'w') as f:
+                    f.write(self.text_area.toPlainText())
+                QMessageBox.information(self, "Success", f"Saved to {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not save file: {e}")
 
 class TextPopup(QDialog):
     def __init__(self, parent, url, title, typ, theme, font_size, parse_pre=False):
@@ -721,7 +899,6 @@ class WebViewPopup(QDialog):
     def on_load_progress(self, progress):
         self.status.setText(f"🔄 Loading... {progress}%")
 
-
 class AlertFetcher(QThread):
     alerts_loaded = pyqtSignal(str)
     progress_updated = pyqtSignal(int)
@@ -730,6 +907,12 @@ class AlertFetcher(QThread):
         super().__init__(parent)
         self.url = url
         self.parse_atom = parse_atom
+
+    def fetch_colorado_alerts(self):
+        """Fetch and display Colorado NWS alerts"""
+        url = "https://alerts.weather.gov/cap/co.php?x=0"
+        dialog = AlertsDisplayDialog(self, url, "Colorado NWS Alerts", self.theme, self.font_size, self.auto_refresh_mins)
+        dialog.exec()
 
     def run(self):
         text = ""
@@ -770,6 +953,7 @@ class WeatherToolkitWidget(QWidget):
         widget.set_theme(your_theme_dict)
         layout.addWidget(widget)
     """
+    window_title = "Active Colorado Alerts"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1021,6 +1205,7 @@ class WeatherToolkitWidget(QWidget):
     def fetch_colorado_alerts(self):
         url = "https://alerts.weather.gov/cap/co.php?x=0"
         self._fetch_alerts(url, "Active Colorado Alerts")
+        window_title = "Active Colorado Alerts"
 
     def fetch_area_alerts(self):
         url = "https://www.weather.gov/wwamap/wwatxtget.php?cwa=pub&wwa=all"
@@ -1041,6 +1226,7 @@ class WeatherToolkitWidget(QWidget):
     def fetch_us_alerts(self):
         url = "https://api.weather.gov/alerts/active.atom"
         self._fetch_alerts(url, "Active US Alerts")
+        window_title = "Active Colorado Alerts"
 
     def _fetch_alerts(self, url, window_title):
         """
@@ -2010,24 +2196,42 @@ class ModernGroupBox(QGroupBox):
             }}
         """)
 
-class AlertFetcher(QObject):
-    """Worker class for fetching alerts in background thread"""
-    alerts_fetched = pyqtSignal(list, str)
-    error_occurred = pyqtSignal(str)
+class AlertFetcher(QThread):
+    alerts_loaded = pyqtSignal(str)  # Match your original signal name
+    progress_updated = pyqtSignal(int)
 
-    def __init__(self, url):
-        super().__init__()
+    def __init__(self, url, parse_atom=True, parent=None):
+        super().__init__(parent)
         self.url = url
+        self.parse_atom = parse_atom
 
-    def fetch_alerts(self):
+    def run(self):
+        text = ""
         try:
-            response = requests.get(self.url, timeout=12)
-            root = ET.fromstring(response.content)
-            entries = root.findall("{http://www.w3.org/2005/Atom}entry")
-            last_update = time.strftime("%Y-%m-%d %H:%M:%S")
-            self.alerts_fetched.emit(entries, last_update)
+            self.progress_updated.emit(25)
+            resp = requests.get(self.url, timeout=12)
+            self.progress_updated.emit(50)
+
+            if self.parse_atom:
+                rootx = ET.fromstring(resp.content)
+                entries = rootx.findall("{http://www.w3.org/2005/Atom}entry")
+                self.progress_updated.emit(75)
+
+                for entry in entries:
+                    title = entry.find("{http://www.w3.org/2005/Atom}title")
+                    summary = entry.find("{http://www.w3.org/2005/Atom}summary")
+                    link = entry.find("{http://www.w3.org/2005/Atom}link")
+                    area = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
+                    counties = area.text if area is not None and area.text else ""
+                    text += f"🚨 {title.text if title is not None else 'No Title'}\n📝 {summary.text if summary is not None else 'No Summary'}\n🗺️ {counties}\n🔗 {link.attrib.get('href') if link is not None else ''}\n\n"
+            else:
+                text = resp.text
+
+            self.progress_updated.emit(100)
         except Exception as e:
-            self.error_occurred.emit(str(e))
+            text = f"❌ Failed to fetch alerts:\n{e}"
+
+        self.alerts_loaded.emit(text)
 
 class SevereWeatherWindow(QWidget):
     """Main application window with enhanced features"""
@@ -2108,6 +2312,29 @@ class SevereWeatherWindow(QWidget):
         # Keyboard shortcuts
         self.setup_shortcuts()
 
+    def create_top_buttons(self, layout):
+        button_layout = QHBoxLayout()
+
+        buttons = [
+            ("Colorado Alerts (Alt+C)", self.fetch_colorado_alerts, "Show current Colorado NWS alerts."),
+            ("US Alerts (Alt+U)", self.fetch_us_alerts, "Show all US NWS alerts."),
+            ("GOES Snapshot (Alt+G)", self.show_satellite_image, "Show latest GOES satellite image."),
+            ("Report Weather to NWS (Alt+A)", self.open_nws_report, "Send weather report directly to the NWS."),
+            ("Settings", self.open_settings, "Open application settings."),
+            ("Help (F1)", self.show_help, "Show help/documentation."),
+            ("Submit Resource", self.submit_resource, "Suggest a new resource for the program."),
+            ("Exit (Alt+Q)", self.close, "Exit the application."),
+        ]
+
+        for text, callback, tooltip in buttons:
+            btn = QPushButton(text)
+            btn.clicked.connect(callback)
+            btn.setToolTip(tooltip)
+            button_layout.addWidget(btn)
+
+        layout.addLayout(button_layout)
+
+
     def create_header(self):
         """Create the application header with real-time clock"""
         header = QFrame()
@@ -2158,7 +2385,7 @@ class SevereWeatherWindow(QWidget):
             if current_hour == 13:  # 1 PM
                 self.net_status.setText("🔴 NET ACTIVE")
                 self.net_status.setStyleSheet("color: #e74c3c; font-weight: bold; font-size: 14px;")
-            elif 12 <= current_hour <= 14:  # Around net time
+            elif 12 <= current_hour <= 13:  # Around net time
                 self.net_status.setText("🟡 NET SOON")
                 self.net_status.setStyleSheet("color: #f39c12; font-weight: bold; font-size: 14px;")
             else:
@@ -2646,9 +2873,9 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
 
         # Quick alerts button
         alerts_btn = ModernButton("🚨 Colorado Active Alerts")
-        alerts_btn.clicked.connect(self.show_alerts)
+        window_title = "Active Colorado Alerts"
+        alerts_btn.clicked.connect(lambda checked, url="https://alerts.weather.gov/cap/co.php?x=0": self._fetch_alerts(url, window_title))
         left_layout.addWidget(alerts_btn)
-
         left_layout.addStretch()
         left_panel.setMaximumWidth(350)
 
@@ -2787,342 +3014,201 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         popup.exec()
 
     def _fetch_alerts(self, url, window_title):
-        theme = self.theme
-        font_size = self.font_size
+        theme = themes.get(self.config.get("theme", "light"), themes["light"])
+        font_size = self.config.get("font_size", 12)
+        window_title = "Active Colorado Alerts"
 
-        # Create popup dialog
-        popup = QDialog(self.root)
+        # Setup dialog
+        popup = QDialog(self)
         popup.setWindowTitle(window_title)
         popup.resize(950, 700)
         popup.setStyleSheet(f"""
-            QDialog {{
+            QDialog, QLabel, QTextEdit, QLineEdit {{
                 background-color: {theme["bg"]};
                 color: {theme["fg"]};
-            }}
-            QLabel {{
-                background-color: {theme["bg"]};
-                color: {theme["fg"]};
-            }}
-            QLineEdit {{
-                background-color: {theme["entry_bg"]};
-                color: {theme["entry_fg"]};
-                border: 1px solid #666;
-                padding: 4px;
             }}
             QPushButton {{
-                background-color: {theme["button_bg"]};
-                color: {theme["button_fg"]};
-                border: 1px solid #666;
+                background-color: {theme.get("button_bg", "#4a90e2")};
+                color: {theme.get("button_fg", "white")};
                 padding: 6px 12px;
-                border-radius: 3px;
+                border-radius: 4px;
             }}
             QPushButton:hover {{
-                background-color: {theme.get("button_hover", theme["button_bg"])};
-            }}
-            QTextEdit {{
-                background-color: {theme["bg"]};
-                color: {theme["fg"]};
-                border: 1px solid #666;
+                background-color: {theme.get("button_hover", "#357abd")};
             }}
         """)
 
-        # Main layout
         layout = QVBoxLayout(popup)
+        font = QFont("SansSerif", font_size)
 
-        # Hint label
-        hint = QLabel("Tip: Search for specific keywords.")
-        hint.setStyleSheet(f"color: {theme['accent']};")
-        font = QFont("TkDefaultFont", font_size)
-        hint.setFont(font)
-        layout.addWidget(hint)
-
-        # Search frame
+        # Search bar
         search_frame = QFrame()
         search_layout = QHBoxLayout(search_frame)
-        search_layout.setContentsMargins(0, 0, 0, 0)
-
-        search_label = QLabel("Filter alerts: ")
-        search_layout.addWidget(search_label)
-
         search_entry = QLineEdit()
         search_entry.setFont(font)
+        refresh_btn = QPushButton("Refresh")
+        search_layout.addWidget(QLabel("Filter alerts: "))
         search_layout.addWidget(search_entry)
-
-        refresh_btn = QPushButton("Refresh Now")
         search_layout.addWidget(refresh_btn)
-
-        search_layout.addStretch()
         layout.addWidget(search_frame)
 
-        # Status label
+        # Status
         stat_label = QLabel("Loading alerts...")
-        stat_label.setStyleSheet(f"color: {theme['accent']};")
         stat_label.setFont(font)
         layout.addWidget(stat_label)
 
-        # Text area
+        # Text output
         text_area = QTextEdit()
         text_area.setFont(font)
         text_area.setReadOnly(True)
-        text_area.setWordWrapMode(QTextEdit.WrapMode.WordWrap)
         layout.addWidget(text_area)
 
-        # Add context menu (assuming you have this method)
-        self._add_context_menu(text_area)
-
-        # Bottom controls
+        # Controls
         ctrl_frame = QFrame()
         ctrl_layout = QHBoxLayout(ctrl_frame)
-        ctrl_layout.setContentsMargins(0, 0, 0, 0)
-
         copy_btn = QPushButton("Copy All")
-        ctrl_layout.addWidget(copy_btn)
-
         save_btn = QPushButton("Save As...")
+        close_btn = QPushButton("Close")
+        ctrl_layout.addWidget(copy_btn)
         ctrl_layout.addWidget(save_btn)
-
         ctrl_layout.addStretch()
-
-        close_btn = QPushButton("Close (Esc)")
         ctrl_layout.addWidget(close_btn)
-
         layout.addWidget(ctrl_frame)
 
-        # Internal state
+        def make_format(color, bold=False):
+            f = QTextCharFormat()
+            f.setForeground(QColor(color))
+            if bold:
+                f.setFontWeight(QFont.Weight.Bold)
+            return f
+
+        warning_fmt = make_format(theme.get("warning", "#ff4444"))
+        watch_fmt = make_format(theme.get("watch", "#ffaa00"))
+        adv_fmt = make_format(theme.get("advisory", "#88aaff"))
+        stmt_fmt = make_format(theme.get("statement", "#88aaff"))
+        county_fmt = make_format(theme.get("county", "#00ff88"))
+        highlight_fmt = QTextCharFormat()
+        highlight_fmt.setBackground(QColor("#204060"))
+        highlight_fmt.setForeground(QColor("yellow"))
+        link_fmt = QTextCharFormat()
+        link_fmt.setForeground(QColor("blue"))
+        link_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+
         entries = []
         last_update = [""]
 
-        # Setup text formats for different alert types
-        warning_format = QTextCharFormat()
-        warning_format.setForeground(QColor(theme["warning"]))
-        warning_format.setFontWeight(QFont.Weight.Bold)
-
-        watch_format = QTextCharFormat()
-        watch_format.setForeground(QColor(theme["watch"]))
-
-        advisory_format = QTextCharFormat()
-        advisory_format.setForeground(QColor(theme["advisory"]))
-
-        statement_format = QTextCharFormat()
-        statement_format.setForeground(QColor(theme["advisory"]))
-
-        county_format = QTextCharFormat()
-        county_format.setForeground(QColor(theme["county"]))
-        county_format.setFontWeight(QFont.Weight.Bold)
-
-        highlight_format = QTextCharFormat()
-        highlight_format.setBackground(QColor("#204060"))
-        highlight_format.setForeground(QColor("yellow"))
-
-        link_format = QTextCharFormat()
-        link_format.setForeground(QColor("blue"))
-        link_format.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
-
-        # Worker thread and fetcher
-        worker_thread = QThread()
-        fetcher = AlertFetcher(url)
-        fetcher.moveToThread(worker_thread)
-
         def load_alerts():
             stat_label.setText("Loading alerts...")
-            self.status("Loading alerts...")
-            # Start worker thread
-            worker_thread.started.connect(fetcher.fetch_alerts)
-            worker_thread.start()
 
-        def on_alerts_fetched(new_entries, update_time):
-            nonlocal entries
-            entries.clear()
-            entries.extend(new_entries)
-            last_update[0] = update_time
-            worker_thread.quit()
-            apply_filter()
+            def run():
+                try:
+                    url="https://alerts.weather.gov/cap/co.php?x=0"
+                    response = requests.get(url, timeout=10)
+                    root = ET.fromstring(response.content)
+                    entries.clear()
+                    entries.extend(root.findall("{http://www.w3.org/2005/Atom}entry"))
+                    last_update[0] = time.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception as e:
+                    self.log_error(f"Error fetching alerts: {e}")
+                    entries.clear()
+                    last_update[0] = ""
 
-        def on_error(error_msg):
-            self.log_error(f"Error fetching alerts: {error_msg}")
-            entries.clear()
-            last_update[0] = ""
-            worker_thread.quit()
-            apply_filter()
+                # Safely call apply_filter in GUI thread
+                QTimer.singleShot(0, apply_filter)
 
-        # Connect signals
-        fetcher.alerts_fetched.connect(on_alerts_fetched)
-        fetcher.error_occurred.connect(on_error)
+            threading.Thread(target=run, daemon=True).start()
 
         def apply_filter():
-            term = search_entry.text().lower()
+            text_area.setReadOnly(False)
             text_area.clear()
-
-            grouped_alerts = {}
-            for entry in entries:
-                title_elem = entry.find("{http://www.w3.org/2005/Atom}title")
-                summary_elem = entry.find("{http://www.w3.org/2005/Atom}summary")
-                link_elem = entry.find("{http://www.w3.org/2005/Atom}link")
-                area_elem = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
-
-                if title_elem is not None and summary_elem is not None:
-                    title = title_elem.text or ""
-                    summary = summary_elem.text or ""
-                    link = link_elem.attrib.get("href", "") if link_elem is not None else ""
-
-                    if area_elem is not None and area_elem.text:
-                        counties = [c.strip() for c in area_elem.text.split(';')]
-                    else:
-                        counties = ["Active NWS Alerts"]
-
-                    if term in title.lower() or term in summary.lower():
-                        for county in counties:
-                            if county not in grouped_alerts:
-                                grouped_alerts[county] = []
-                            grouped_alerts[county].append((title, summary, link))
-
+            term = search_entry.text().lower()
             cursor = text_area.textCursor()
+            grouped = {}
 
-            for county, alerts in grouped_alerts.items():
-                # County header
-                cursor.insertText(f"=== {county} ===\n", county_format)
+            for entry in entries:
+                title = entry.find("{http://www.w3.org/2005/Atom}title")
+                summary = entry.find("{http://www.w3.org/2005/Atom}summary")
+                link = entry.find("{http://www.w3.org/2005/Atom}link")
+                area = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
 
-                for title, summary, link in alerts:
-                    # Determine alert type format
-                    title_lower = title.lower()
-                    if "warning" in title_lower:
-                        alert_format = warning_format
-                    elif "watch" in title_lower:
-                        alert_format = watch_format
-                    elif "advisory" in title_lower:
-                        alert_format = advisory_format
-                    elif "statement" in title_lower:
-                        alert_format = statement_format
-                    else:
-                        alert_format = QTextCharFormat()
+                if title is None or summary is None:
+                    continue
 
-                    # Insert title
-                    cursor.insertText(f"Title: {title}\n", alert_format)
+                title_text = title.text or ""
+                summary_text = summary.text or ""
+                href = link.attrib.get("href") if link is not None else ""
+                counties = [c.strip() for c in area.text.split(";")] if area is not None and area.text else ["Active Alerts"]
 
-                    # Highlight search term in title if present
-                    if term and term in title.lower():
-                        # Find and highlight the term
-                        text = text_area.toPlainText()
-                        start_idx = text.rfind(f"Title: {title}")
-                        if start_idx != -1:
-                            term_idx = title.lower().find(term)
-                            if term_idx != -1:
-                                abs_start = start_idx + 7 + term_idx  # 7 = len("Title: ")
-                                highlight_cursor = text_area.textCursor()
-                                highlight_cursor.setPosition(abs_start)
-                                highlight_cursor.setPosition(abs_start + len(term), QTextCursor.MoveMode.KeepAnchor)
-                                highlight_cursor.mergeCharFormat(highlight_format)
+                if term in title_text.lower() or term in summary_text.lower():
+                    for c in counties:
+                        grouped.setdefault(c, []).append((title_text, summary_text, href))
 
-                    # Insert summary
-                    cursor.insertText(f"Summary: {summary}\n")
+            # Display results
+            if not grouped:
+                cursor.insertText("No alerts found matching your criteria.\n")
+            else:
+                for county, alerts in grouped.items():
+                    cursor.insertText(f"=== {county} ===\n", county_fmt)
+                    for title, summary, link in alerts:
+                        if "warning" in title.lower():
+                            tag_fmt = warning_fmt
+                        elif "watch" in title.lower():
+                            tag_fmt = watch_fmt
+                        elif "advisory" in title.lower():
+                            tag_fmt = adv_fmt
+                        elif "statement" in title.lower():
+                            tag_fmt = stmt_fmt
+                        else:
+                            tag_fmt = QTextCharFormat()
 
-                    # Highlight search term in summary if present
-                    if term and term in summary.lower():
-                        text = text_area.toPlainText()
-                        start_idx = text.rfind(f"Summary: {summary}")
-                        if start_idx != -1:
-                            term_idx = summary.lower().find(term)
-                            if term_idx != -1:
-                                abs_start = start_idx + 9 + term_idx  # 9 = len("Summary: ")
-                                highlight_cursor = text_area.textCursor()
-                                highlight_cursor.setPosition(abs_start)
-                                highlight_cursor.setPosition(abs_start + len(term), QTextCursor.MoveMode.KeepAnchor)
-                                highlight_cursor.mergeCharFormat(highlight_format)
+                        cursor.insertText(f"Title: {title}\n", tag_fmt)
+                        cursor.insertText(f"Summary: {summary}\n")
 
-                    # Insert link
-                    if link:
-                        link_start = cursor.position()
-                        cursor.insertText(f"Link: {link}\n\n")
+                        if link:
+                            start = cursor.position()
+                            cursor.insertText(f"Link: {link}\n\n", link_fmt)
+                            end = cursor.position()
+                            text_area.viewport().setProperty(f"link_{start}", link)
 
-                        # Make link clickable
-                        link_cursor = text_area.textCursor()
-                        link_cursor.setPosition(link_start)
-                        link_cursor.setPosition(cursor.position(), QTextCursor.MoveMode.KeepAnchor)
-                        link_cursor.mergeCharFormat(link_format)
+            text_area.setReadOnly(True)
 
-                        # Store link for click handling
-                        text_area.setProperty(f"link_{link_start}", link)
+            # Update status
+            if last_update[0]:
+                stat_label.setText(f"Alerts loaded. Last update: {last_update[0]}")
+                self.status(f"{window_title} loaded at {last_update[0]}")
+            else:
+                stat_label.setText("Failed to load alerts")
+                self.status(f"Failed to load {window_title}")
 
-            stat_label.setText(f"Alerts loaded. Last update: {last_update[0]}")
-            self.status(f"{window_title} loaded at {last_update[0]}")
-
-        # Handle text area mouse clicks for links
         def handle_text_click(event):
-            cursor = text_area.cursorForPosition(event.pos())
-            pos = cursor.position()
-
-            # Check if click is on a link
-            for prop_name in text_area.dynamicPropertyNames():
-                prop_name_str = prop_name.data().decode('utf-8')
-                if prop_name_str.startswith("link_"):
-                    link_pos = int(prop_name_str.split("_")[1])
-                    # Simple range check - in production you'd want more precise hit detection
-                    if abs(pos - link_pos) < 200:  # Approximate range
-                        url = text_area.property(prop_name_str)
+            pos = text_area.cursorForPosition(event.pos()).position()
+            for prop in text_area.dynamicPropertyNames():
+                prop_str = prop.data().decode()
+                if prop_str.startswith("link_"):
+                    link_pos = int(prop_str.split("_")[1])
+                    if abs(link_pos - pos) < 200:
+                        url = text_area.property(prop_str)
                         if url:
                             webbrowser.open(url)
                             break
 
+        # Connects
         text_area.mousePressEvent = handle_text_click
-
-        # Connect buttons
         refresh_btn.clicked.connect(load_alerts)
+        search_entry.textChanged.connect(apply_filter)
         copy_btn.clicked.connect(lambda: self.copy_to_clipboard(text_area.toPlainText()))
         save_btn.clicked.connect(lambda: self.save_text_to_file(text_area.toPlainText()))
         close_btn.clicked.connect(popup.close)
+#        QShortcut(QKeySequence(Qt.Key.Key_Escape), popup).activated.connect(popup.close)
 
-        # Connect search
-        search_entry.textChanged.connect(apply_filter)
-        search_entry.returnPressed.connect(apply_filter)
-
-        # Keyboard shortcuts
-        popup.keyPressEvent = lambda e: popup.close() if e.key() == Qt.Key.Key_Escape else None
-
-        # Set focus
-        search_entry.setFocus()
-
-        # Auto-refresh timer
-        refresh_timer = QTimer()
+        # Auto refresh
+        refresh_interval = self.config.get("auto_refresh_mins", 5) * 60000
+        refresh_timer = QTimer(popup)
         refresh_timer.timeout.connect(load_alerts)
-        refresh_timer.start(self.auto_refresh_mins * 60000)
+        refresh_timer.start(refresh_interval)
 
         # Initial load
         load_alerts()
-
-        self.status(f"{window_title} opened.")
-
-        # Show popup
-        popup.exec()
-
-    def show_alerts(self):
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-
-        self.fetcher = AlertFetcher("https://alerts.weather.gov/cap/co.php?x=0")
-        self.fetcher.alerts_loaded.connect(self.display_alerts)
-        self.fetcher.progress_updated.connect(self.progress_bar.setValue)
-        self.fetcher.start()
-
-    def display_alerts(self, alert_text):
-        self.progress_bar.setVisible(False)
-        popup = QDialog(self)
-        popup.setWindowTitle("🚨 Colorado Active Weather Alerts")
-        popup.setMinimumSize(1000, 700)
-
-        layout = QVBoxLayout()
-
-        text_area = QTextEdit()
-        text_area.setPlainText(alert_text)
-        text_area.setReadOnly(True)
-        text_area.setFont(QFont("Consolas", self.config["font_size"]))
-        layout.addWidget(text_area)
-
-        close_btn = QPushButton("❌ Close")
-        close_btn.clicked.connect(popup.close)
-        layout.addWidget(close_btn)
-
-        popup.setLayout(layout)
-        popup.setStyleSheet(self.get_dialog_style())
         popup.exec()
 
 
@@ -3288,9 +3374,9 @@ Open Net following Analog repeater IDs at the top of the hour…"""
 
 Happy {time_info['day']}! Welcome to the Wx Outlook Net from the Severe Wx Network here on the Skyhub repeater-linking system, where we cover the Central Rockies and High Plains Region.
 
-Your Net Control is {net_data.name}, {net_data.callsign}, {net_data.phonetic_callsign}, located in {net_data.location}.
+Your Net Control is {self.net_data.name}, {self.net_data.callsign} located in {self.net_data.location}.
 
-{net_data.logger_name}, {net_data.logger_callsign} is your net logging host.
+{self.net_data.logger_name}, {self.net_data.logger_callsign} is your net logging host.
 
 This briefing airs Mondays thru Fridays at 1300 MT on the SkyHubLink.com system and whenever else needed.
 
@@ -3324,18 +3410,13 @@ To monitor the CO Severe Rm go to hose.brandmeister.network. Click on the player
         self.sections.append(("Access Information", access_info))
 
     # Section 4: Weather Announcements
-        weather_text = f"""SEVERE WEATHER OUTLOOK ANNOUNCEMENTS:
-
-"""
-        if net_data.weather_announcements:
-            for i, announcement in enumerate(net_data.weather_announcements, 1):
-                weather_text += f"{i}. {announcement}\n\n"
-        else:
-            weather_text += "(No severe weather announcements at this time)\n\n"
+        weather_text = "SEVERE WEATHER OUTLOOK ANNOUNCEMENTS:\n\n"
+        for i, announcement in enumerate(self.net_data.weather_announcements, 1):
+            weather_text += f"{i}. {announcement}\n\n"
 
         weather_text += "That concludes our severe weather outlook announcements."
 
-        self.sections.append(("Weather Announcements", weather_text))
+        self.sections.append(("Weather Outlook", weather_text))
 
     # Section 5: NWS Office Information & Net Procedures
         nws_procedures = f"""During this net, we provide information to Skywarn Storm Spotters for the 5 National Weather Services with whom we are Core Partners here in the central High Plains and Rockies region.
@@ -3555,7 +3636,7 @@ Thanks to the Skyhublink System for the use of its many repeaters and for the Se
 
 Thanks also to kd0sbn for WiresX 65045 in the CO Severe Rm, which is access for the NC2WX Skywarn repeater.
 
-For the Severe Weather Network, this is {net_data.name} closing the Weather Outlook Net. The systems are returned to open use. Have a great day! 73, {net_data.callsign} is clear.
+For the Severe Weather Network, this is {self.net_data.name} closing the Weather Outlook Net. The systems are returned to open use. Have a great day! 73, {self.net_data.callsign} is clear.
 
 In Netlogger, click "Close Net" and log the check-ins. Beginning with last check-in, right click on callsign, left click on "Log Contact"."""
 
