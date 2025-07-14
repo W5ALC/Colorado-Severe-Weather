@@ -22,6 +22,8 @@ import logging
 import requests
 import time
 import webbrowser
+import threading
+import pytz
 
 from bs4 import BeautifulSoup
 import re
@@ -342,44 +344,515 @@ def get_lines_from_file(file_path: Path) -> List[str]:
         logging.error(f"Error reading file {file_path}: {e}")
     return []
 
-def get_current_mountain_time() -> Dict[str, str]:
-    """Get current Mountain Time with proper DST handling"""
-    now = datetime.now()
 
-    # Simple DST check (second Sunday in March to first Sunday in November)
-    # This is a basic implementation - for production use pytz or zoneinfo
-    year = now.year
-    dst_start = datetime(year, 3, 8)  # Approximate
-    dst_end = datetime(year, 11, 1)   # Approximate
+def get_current_mountain_time():
+    """Get current Mountain Time formatted with all needed keys"""
+    try:
+        mt = pytz.timezone('America/Denver')
+        now = datetime.now(mt)
+        return {
+            'full': now.strftime('%Y-%m-%d %H:%M:%S MST'),
+            'short': now.strftime('%H:%M'),
+            'date': now.strftime('%A, %B %d, %Y'),
+            'time': now.strftime('%H:%M:%S'),
+            'timezone': 'MST',
+            'day': now.strftime('%A'),  # Monday, Tuesday, etc.
+            'day_short': now.strftime('%a'),  # Mon, Tue, etc.
+            'weekday': now.weekday(),  # 0=Monday, 6=Sunday
+            'month': now.strftime('%B'),  # January, February, etc.
+            'month_short': now.strftime('%b'),  # Jan, Feb, etc.
+            'year': now.strftime('%Y'),
+            'hour': now.strftime('%H'),
+            'minute': now.strftime('%M'),
+            'second': now.strftime('%S')
+        }
+    except Exception as e:
+        # Fallback if pytz isn't available or there's an error
+        now = datetime.now()
+        return {
+            'full': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'short': now.strftime('%H:%M'),
+            'date': now.strftime('%A, %B %d, %Y'),
+            'time': now.strftime('%H:%M:%S'),
+            'timezone': 'Local',
+            'day': now.strftime('%A'),  # Monday, Tuesday, etc.
+            'day_short': now.strftime('%a'),  # Mon, Tue, etc.
+            'weekday': now.weekday(),  # 0=Monday, 6=Sunday
+            'month': now.strftime('%B'),  # January, February, etc.
+            'month_short': now.strftime('%b'),  # Jan, Feb, etc.
+            'year': now.strftime('%Y'),
+            'hour': now.strftime('%H'),
+            'minute': now.strftime('%M'),
+            'second': now.strftime('%S')
+        }
 
-    is_dst = dst_start <= now <= dst_end
+class TimeWidget(QLabel):
+    """Widget that displays current time and updates automatically"""
 
-    if is_dst:
-        tz = timezone(timedelta(hours=Config.MDT_OFFSET))
-        tz_name = "MDT"
-    else:
-        tz = timezone(timedelta(hours=Config.MST_OFFSET))
-        tz_name = "MST"
+    def __init__(self):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
+        super().__init__()
+#        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 5px;
+            }
+        """)
 
-    mt_time = now.astimezone(tz)
+        # Set up timer to update every second
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_time)
+        self.timer.start(1000)  # Update every 1000ms (1 second)
 
-    return {
-        'time': mt_time.strftime("%I:%M %p"),
-        'timezone': tz_name,
-        'full': f"{mt_time.strftime('%I:%M %p')} {tz_name}",
-        'date': mt_time.strftime("%A, %B %d, %Y"),
-        'day': mt_time.strftime("%A"),
-        'datetime': mt_time
-    }
+        # Initial update
+        self.update_time()
+
+    def update_time(self):
+        """Update the displayed time"""
+        try:
+            time_info = get_current_mountain_time()
+            # Format: "2024-01-15 14:30:25 MST • Monday, January 15, 2024"
+            self.setText(f"{time_info['full']} • {time_info['date']}")
+        except Exception as e:
+            # Fallback display if there's an error
+            self.setText(f"Time update error: {str(e)}")
+
+    def get_current_time_info(self):
+        """Get current time info - useful for other parts of the application"""
+        return get_current_mountain_time()
 
 def is_net_day() -> bool:
     """Check if today is a net day"""
     return get_current_mountain_time()['day'] in Config.NET_DAYS
 
+class WeatherFetcherThread(QThread):
+    """Thread to fetch weather data without blocking the UI"""
+    data_ready = pyqtSignal(dict)
+    error_occurred = pyqtSignal(str)
+    progress_update = pyqtSignal(int)
 
+    def __init__(self, city_coords):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
+        super().__init__()
+        self.city_coords = city_coords
+
+    def run(self):
+        try:
+            fetcher = NWSConditionsFetcher(self.city_coords)
+            total_cities = len(self.city_coords)
+            results = {}
+
+            for i, (city, (lat, lon)) in enumerate(self.city_coords.items()):
+                # Update progress
+                progress = int((i / total_cities) * 90)  # 90% max, save 10% for completion
+                self.progress_update.emit(progress)
+
+                # Fetch conditions for this city
+                conditions = fetcher.get_current_conditions(lat, lon)
+                results[city] = conditions
+
+                # Small delay to prevent API rate limiting
+                self.msleep(200)  # 200ms delay between requests
+
+            self.progress_update.emit(100)
+            self.data_ready.emit(results)
+
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+
+class NWSConditionsFetcher:
+
+    """Class to fetch current weather conditions from the NWS API."""
+
+    def __init__(self, city_coords: dict):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
+        """
+        city_coords: dict of city name to (lat, lon)
+        Example: { "Denver": (39.7392, -104.9903) }
+        """
+        self.city_coords = city_coords
+
+    def get_current_conditions(self, lat: float, lon: float) -> dict:
+        """Fetch current conditions for given lat/lon."""
+        try:
+            # Step 1: Get point metadata
+            points_url = f"https://api.weather.gov/points/{lat},{lon}"
+            headers = {
+                'User-Agent': 'WeatherApp/1.0 (contact@example.com)'  # NWS recommends this
+            }
+            points_resp = requests.get(points_url, headers=headers, timeout=10)
+            points_resp.raise_for_status()
+            points_data = points_resp.json()
+
+            # Step 2: Get observation stations
+            stations_url = points_data['properties']['observationStations']
+            stations_resp = requests.get(stations_url, headers=headers, timeout=10)
+            stations_resp.raise_for_status()
+            stations_data = stations_resp.json()
+
+            # Step 3: Pick first station (with validation)
+            if not stations_data.get('features'):
+                raise Exception("No observation stations found")
+
+            station_id = stations_data['features'][0]['properties']['stationIdentifier']
+
+            # Step 4: Get latest observation
+            obs_url = f"https://api.weather.gov/stations/{station_id}/observations/latest"
+            obs_resp = requests.get(obs_url, headers=headers, timeout=10)
+            obs_resp.raise_for_status()
+            obs_data = obs_resp.json()
+
+            # Step 5: Extract properties safely
+            props = obs_data.get('properties', {})
+            temp_c = props.get('temperature', {}).get('value') if props.get('temperature') else None
+            temp_f = temp_c * 9 / 5 + 32 if temp_c is not None else None
+            desc = props.get('textDescription', 'N/A')
+            wind_data = props.get('windSpeed', {})
+            wind = wind_data.get('value') if wind_data else None
+            humidity_data = props.get('relativeHumidity', {})
+            humidity = humidity_data.get('value') if humidity_data else None
+
+            return {
+                'description': desc,
+                'temperature_C': temp_c,
+                'temperature_F': temp_f,
+                'wind_mps': wind,
+                'humidity_pct': humidity,
+                'station': station_id,
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e)
+            }
+
+    def fetch_all_conditions(self) -> dict:
+        """Fetch current conditions for all cities in self.city_coords."""
+        results = {}
+        for city, (lat, lon) in self.city_coords.items():
+            conditions = self.get_current_conditions(lat, lon)
+            results[city] = conditions
+        return results
+
+# def get_current_mountain_time():
+#     """Get current Mountain Time formatted"""
+#     try:
+#         mt = pytz.timezone('America/Denver')
+#         now = datetime.now(mt)
+#         return {
+#             'full': now.strftime('%Y-%m-%d %H:%M:%S MST'),
+#             'short': now.strftime('%H:%M')
+#         }
+#     except:
+#         # Fallback if pytz isn't available
+#         now = datetime.now()
+#         return {
+#             'full': now.strftime('%Y-%m-%d %H:%M:%S'),
+#             'short': now.strftime('%H:%M')
+#         }
+
+class AlertsDisplayDialog(QDialog):
+    def __init__(self, parent, url, window_title, theme, font_size, auto_refresh_mins):
+        super().__init__(parent)
+        self.url = url
+        self.window_title = window_title
+        self.theme = themes[theme]
+        self.font_size = font_size
+        self.auto_refresh_mins = auto_refresh_mins
+        self.entries = []
+        self.formatted_text = ""  # Store the formatted text for filtering
+        self.last_update = ""
+
+        self.setWindowTitle(window_title)
+        self.resize(950, 700)
+        self.setup_ui()
+        self.load_alerts()
+        self.setup_auto_refresh()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+
+        # Hint label
+        hint_label = QLabel("Tip: Search for specific keywords.")
+        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(hint_label)
+
+        # Search/filter section
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Filter alerts:"))
+
+        self.search_edit = QLineEdit()
+        self.search_edit.textChanged.connect(self.apply_filter)
+        search_layout.addWidget(self.search_edit)
+
+        refresh_btn = QPushButton("Refresh Now")
+        refresh_btn.clicked.connect(self.load_alerts)
+        search_layout.addWidget(refresh_btn)
+
+        layout.addLayout(search_layout)
+
+        # Status label
+        self.status_label = QLabel("Loading alerts...")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
+
+        # Text area
+        self.text_area = QTextEdit()
+        self.text_area.setReadOnly(True)
+        self.text_area.setFont(QFont("monospace", self.font_size))
+        layout.addWidget(self.text_area)
+
+        # Button layout
+        button_layout = QHBoxLayout()
+
+        copy_btn = QPushButton("Copy All")
+        copy_btn.clicked.connect(self.copy_all)
+        button_layout.addWidget(copy_btn)
+
+        save_btn = QPushButton("Save As...")
+        save_btn.clicked.connect(self.save_as)
+        button_layout.addWidget(save_btn)
+
+        button_layout.addStretch()
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        button_layout.addWidget(close_btn)
+
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+        self.apply_theme()
+
+    def apply_theme(self):
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {self.theme['bg']};
+                color: {self.theme['fg']};
+            }}
+            QTextEdit {{
+                background-color: {self.theme['bg']};
+                color: {self.theme['fg']};
+                border: 1px solid {self.theme['accent']};
+            }}
+            QLineEdit {{
+                background-color: {self.theme['entry_bg']};
+                color: {self.theme['entry_fg']};
+                border: 1px solid {self.theme['accent']};
+                padding: 5px;
+            }}
+            QPushButton {{
+                background-color: {self.theme['button_bg']};
+                color: {self.theme['button_fg']};
+                border: 1px solid {self.theme['accent']};
+                padding: 5px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.theme['button_hover']};
+                color: {self.theme['button_hover']};
+            }}
+            QLabel {{
+                color: {self.theme['accent']};
+            }}
+        """)
+
+    def setup_auto_refresh(self):
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.load_alerts)
+        self.timer.start(self.auto_refresh_mins * 60000)  # Convert to milliseconds
+
+    def load_alerts(self):
+        self.status_label.setText("Loading alerts...")
+        self.fetcher = AlertFetcher(self.url)
+        self.fetcher.alerts_loaded.connect(self.on_alerts_ready)
+        self.fetcher.start()
+
+    def on_alerts_ready(self, entries):
+        print("=== DEBUG on_alerts_ready ===")
+        print(f"Received entries type: {type(entries)}")
+
+        # Check if entries is already formatted text
+        if isinstance(entries, str):
+            # It's already formatted text, store it and display
+            self.formatted_text = entries
+            self.entries = []  # Clear XML entries since we have formatted text
+            self.last_update = time.strftime("%Y-%m-%d %H:%M:%S")
+            self.apply_filter()  # Apply any existing filter
+            return
+
+        # If it's not a string, process as XML elements (original logic)
+        self.entries = entries
+        self.formatted_text = ""  # Clear formatted text since we have XML
+        self.last_update = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.apply_filter()
+
+    def on_error(self, error):
+        self.entries = []
+        self.formatted_text = ""
+        self.last_update = ""
+        self.text_area.setPlainText(f"Error fetching alerts: {error}")
+        self.status_label.setText("Error loading alerts")
+
+    def apply_filter(self):
+        term = self.search_edit.text().lower().strip()
+
+        # If we have formatted text (string), filter it
+        if self.formatted_text:
+            if not term:
+                # No filter term, show all text
+                self.text_area.setPlainText(self.formatted_text)
+                self.text_area.update()  # Force GUI update
+            else:
+                # Debug: Print what we're searching for
+                print(f"DEBUG: Searching for term: '{term}'")
+                print(f"DEBUG: First 200 chars of formatted_text: {self.formatted_text[:200]}...")
+
+                # Check if the text has section headers (=== format)
+                if '===' in self.formatted_text:
+                    # Split into sections by the === markers
+                    sections = []
+                    current_section = []
+
+                    for line in self.formatted_text.split('\n'):
+                        if line.startswith('=== ') and line.endswith(' ==='):
+                            # Save previous section if it exists
+                            if current_section:
+                                sections.append('\n'.join(current_section))
+                            # Start new section
+                            current_section = [line]
+                        else:
+                            current_section.append(line)
+
+                    # Don't forget the last section
+                    if current_section:
+                        sections.append('\n'.join(current_section))
+
+                    # Filter sections that contain the search term
+                    matching_sections = []
+                    for section in sections:
+                        if term in section.lower():
+                            matching_sections.append(section)
+                            print(f"DEBUG: Found match in section starting with: {section.split(chr(10))[0]}")
+
+                    result_text = '\n\n'.join(matching_sections)
+                else:
+                    # No section headers, filter by lines or paragraphs
+                    lines = self.formatted_text.split('\n')
+                    matching_lines = []
+
+                    # Group lines into alerts (between emoji lines)
+                    current_alert = []
+                    alerts = []
+
+                    for line in lines:
+                        if line.startswith('🚨 '):  # Start of new alert
+                            if current_alert:
+                                alerts.append('\n'.join(current_alert))
+                            current_alert = [line]
+                        else:
+                            current_alert.append(line)
+
+                    # Don't forget the last alert
+                    if current_alert:
+                        alerts.append('\n'.join(current_alert))
+
+                    # Filter alerts that contain the search term
+                    matching_alerts = []
+                    for alert in alerts:
+                        if term in alert.lower():
+                            matching_alerts.append(alert)
+                            print(f"DEBUG: Found match in alert starting with: {alert.split(chr(10))[0]}")
+
+                    result_text = '\n\n'.join(matching_alerts)
+
+                # Force clear the text area first
+                self.text_area.clear()
+                self.text_area.update()
+
+                if result_text:
+                    self.text_area.setPlainText(result_text)
+                    print(f"DEBUG: Setting text area with {len(result_text)} chars")
+                else:
+                    self.text_area.setPlainText("No matching alerts found.")
+                    print(f"DEBUG: No matches found, showing 'No matching alerts found.'")
+
+                # Force GUI update
+                self.text_area.update()
+                self.text_area.repaint()
+
+                print(f"DEBUG: Final result length: {len(result_text)} chars")
+
+            self.status_label.setText(f"Alerts loaded. Last update: {self.last_update}")
+            return
+
+        # Original XML processing logic
+        if not self.entries:
+            self.text_area.setPlainText("No alerts to display")
+            self.status_label.setText(f"No alerts. Last update: {self.last_update}")
+            return
+
+        grouped_alerts = {}
+
+        for entry in self.entries:
+            # Skip if entry is not an XML element
+            if not hasattr(entry, 'find'):
+                continue
+
+            title_elem = entry.find("{http://www.w3.org/2005/Atom}title")
+            summary_elem = entry.find("{http://www.w3.org/2005/Atom}summary")
+            link_elem = entry.find("{http://www.w3.org/2005/Atom}link")
+            area_elem = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
+
+            if title_elem is not None and summary_elem is not None:
+                title = title_elem.text
+                summary = summary_elem.text
+                link = link_elem.attrib.get("href") if link_elem is not None else ""
+                if area_elem is not None and area_elem.text:
+                    counties = [c.strip() for c in area_elem.text.split(';')]
+                else:
+                    counties = ["Active NWS Alerts"]
+                if term in title.lower() or term in summary.lower():
+                    for county in counties:
+                        if county not in grouped_alerts:
+                            grouped_alerts[county] = []
+                        grouped_alerts[county].append((title, summary, link))
+
+        # Build display text
+        display_text = ""
+        for county, alerts in grouped_alerts.items():
+            display_text += f"=== {county} ===\n"
+            for title, summary, link in alerts:
+                display_text += f"Title: {title}\n"
+                display_text += f"Summary: {summary}\n"
+                display_text += f"Link: {link}\n\n"
+
+        self.text_area.setPlainText(display_text)
+        self.status_label.setText(f"Alerts loaded. Last update: {self.last_update}")
+
+    def copy_all(self):
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.text_area.toPlainText())
+
+    def save_as(self):
+        filename, _ = QFileDialog.getSaveFileName(self, "Save As", "", "Text Files (*.txt);;All Files (*)")
+        if filename:
+            try:
+                with open(filename, 'w') as f:
+                    f.write(self.text_area.toPlainText())
+                QMessageBox.information(self, "Success", f"Saved to {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not save file: {e}")
 
 class TextPopup(QDialog):
     def __init__(self, parent, url, title, typ, theme, font_size, parse_pre=False):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle(f"{typ} Viewer - {title}")
         self.setMinimumSize(1000, 700)
@@ -478,6 +951,8 @@ class TextPopup(QDialog):
 
 class ImagePopup(QDialog):
     def __init__(self, parent, url, theme, font_size):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle("🛰️ GOES Satellite Snapshot")
         self.setMinimumSize(1200, 800)
@@ -540,6 +1015,8 @@ class ImagePopup(QDialog):
 
 class SpotterImagePopup(QDialog):
     def __init__(self, parent, url, theme, font_size):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle("📋 Skywarn Spotter Checklist")
 
@@ -632,6 +1109,8 @@ class SpotterImagePopup(QDialog):
 
 class WebViewPopup(QDialog):
     def __init__(self, parent, url, title, theme, font_size):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle(f"🌐 {title}")
         self.setMinimumSize(1200, 800)
@@ -721,15 +1200,22 @@ class WebViewPopup(QDialog):
     def on_load_progress(self, progress):
         self.status.setText(f"🔄 Loading... {progress}%")
 
-
 class AlertFetcher(QThread):
     alerts_loaded = pyqtSignal(str)
     progress_updated = pyqtSignal(int)
 
     def __init__(self, url, parse_atom=True, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.url = url
         self.parse_atom = parse_atom
+
+    def fetch_colorado_alerts(self):
+        """Fetch and display Colorado NWS alerts"""
+        url = "https://alerts.weather.gov/cap/co.php?x=0"
+        dialog = AlertsDisplayDialog(self, url, "Colorado NWS Alerts", self.theme, self.font_size, self.auto_refresh_mins)
+        dialog.exec()
 
     def run(self):
         text = ""
@@ -761,17 +1247,12 @@ class AlertFetcher(QThread):
         self.alerts_loaded.emit(text)
 
 class WeatherToolkitWidget(QWidget):
-    """
-    A reusable weather toolkit widget that can be embedded into other applications.
 
-    Usage:
-        widget = WeatherToolkitWidget()
-        widget.set_resources(your_resources_dict)
-        widget.set_theme(your_theme_dict)
-        layout.addWidget(widget)
-    """
+#    window_title = "Active Colorado Alerts"
 
     def __init__(self, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.resources = resources  # Default placeholder
         self.theme = themes["default"]  # Default theme
@@ -852,6 +1333,146 @@ class WeatherToolkitWidget(QWidget):
         self.section_buttons = {}
         self.create_section_buttons()
 
+#     def refresh_weather_data(self):
+#         """Refresh weather data using NWS API"""
+#         self.status_bar.show_message("Refreshing weather data...", progress=True)
+#         self.status_bar.set_progress(0)
+#
+#         # Define Colorado city coordinates
+#         city_coords = {
+#             "Denver": (39.7392, -104.9903),
+#             "Aurora": (39.7294, -104.8319),
+#             "Lakewood": (39.7047, -105.0814),
+#             "Colorado Springs": (38.8339, -104.8214),
+#             "Pueblo": (38.2544, -104.6091),
+#             "Fountain": (38.6822, -104.7008),
+#             "Grand Junction": (39.0639, -108.5506),
+#             "Montrose": (38.4783, -107.8762),
+#             "Rifle": (39.5347, -107.7837),
+#             "Sterling": (40.6255, -103.2077),
+#             "Fort Morgan": (40.2506, -103.7994),
+#             "Yuma": (40.1211, -102.7258),
+#             "Fort Collins": (40.5853, -105.0844),
+#             "Greeley": (40.4233, -104.7091),
+#             "Loveland": (40.3978, -105.0749),
+#         }
+#
+#         # Start the weather fetcher thread
+#         self.weather_thread = WeatherFetcherThread(city_coords)
+#         self.weather_thread.data_ready.connect(self.on_weather_data_ready)
+#         self.weather_thread.error_occurred.connect(self.on_weather_error)
+#         self.weather_thread.progress_update.connect(self.on_weather_progress)
+#         self.weather_thread.start()
+#
+#     def on_weather_progress(self, progress_value):
+#         """Update progress bar during weather fetch"""
+#         self.status_bar.set_progress(progress_value)
+#
+#     def on_weather_data_ready(self, all_conditions):
+#         """Handle weather data when it's ready"""
+#         self.status_bar.set_progress(100)
+#         self.status_bar.show_message("Weather data updated")
+#
+#         # Format the weather data for display
+#         weather_text = self.format_weather_data(all_conditions)
+#         weather_text += f"\n\nLast updated: {get_current_mountain_time()['full']}"
+#
+#         self.conditions_display.setPlainText(weather_text)
+#
+#         # Clear the progress after a short delay
+#         QTimer.singleShot(2000, lambda: self.status_bar.set_progress(0))
+#
+#     def on_weather_error(self, error_message):
+#         """Handle weather fetch errors"""
+#         self.status_bar.set_progress(0)
+#         self.status_bar.show_message(f"Error fetching weather: {error_message}")
+#
+#         # Show fallback data with error message
+#         fallback_text = f"Unable to fetch live weather data: {error_message}\n\n"
+#         fallback_text += """FALLBACK WEATHER INFORMATION:
+#     For current conditions, please visit:
+#     • Denver area: weather.gov/bou
+#     • Colorado Springs: weather.gov/pub
+#     • Grand Junction: weather.gov/gjt
+#     • Fort Collins: weather.gov/bou
+#
+#     Or call your local NWS office for current conditions."""
+#
+#         fallback_text += f"\n\nLast attempt: {get_current_mountain_time()['full']}"
+#         self.conditions_display.setPlainText(fallback_text)
+#
+#     def format_weather_data(self, all_conditions):
+#         """Format weather conditions for display"""
+#         weather_lines = ["CURRENT WEATHER CONDITIONS (Live NWS Data):"]
+#
+#         # Sort cities for consistent display
+#         sorted_cities = sorted(all_conditions.keys())
+#
+#         for city in sorted_cities:
+#             conditions = all_conditions[city]
+#
+#             if 'error' in conditions:
+#                 weather_lines.append(f"{city}: Data unavailable - {conditions['error']}")
+#             else:
+#                 # Format temperature
+#                 temp_f = conditions.get('temperature_F')
+#                 if temp_f is not None:
+#                     temp_str = f"{temp_f:.0f}°F"
+#                 else:
+#                     temp_str = "N/A"
+#
+#                 # Format description
+#                 desc = conditions.get('description', 'N/A')
+#                 if desc == 'N/A' or desc is None:
+#                     desc = "Conditions unknown"
+#
+#                 # Format wind
+#                 wind_mps = conditions.get('wind_mps')
+#                 if wind_mps is not None:
+#                     # Convert m/s to mph for display
+#                     wind_mph = wind_mps * 2.237
+#                     if wind_mph < 1:
+#                         wind_str = "Calm"
+#                     else:
+#                         wind_str = f"Wind: {wind_mph:.0f} mph"
+#                 else:
+#                     wind_str = "Wind: N/A"
+#
+#                 # Format humidity
+#                 humidity = conditions.get('humidity_pct')
+#                 if humidity is not None:
+#                     humidity_str = f"Humidity: {humidity:.0f}%"
+#                 else:
+#                     humidity_str = "Humidity: N/A"
+#
+#                 # Format the line
+#                 weather_lines.append(
+#                     f"{city}: {desc}, {temp_str}, {wind_str}, {humidity_str}"
+#                 )
+#
+#         # Add general advisories
+#         weather_lines.append("")
+#         weather_lines.append("For detailed forecasts and warnings, visit weather.gov")
+#         weather_lines.append("Data provided by National Weather Service")
+#
+#         return "\n".join(weather_lines)
+#
+#     def load_initial_weather_data(self):
+#         """Load weather data when the application starts"""
+#         # Set initial placeholder text
+#         initial_text = """Loading weather data...
+#
+# This may take a moment as we fetch current conditions
+# from the National Weather Service API.
+#
+# If this is taking too long, you can click the refresh button
+# to try again."""
+#
+#         self.conditions_display.setPlainText(initial_text)
+#
+#     # Start loading weather data after a short delay
+#         QTimer.singleShot(1000, self.refresh_weather_data)
+
     def create_section_buttons(self):
         """Create buttons for each resource section"""
         # Clear existing buttons
@@ -919,6 +1540,59 @@ class WeatherToolkitWidget(QWidget):
 
         self.right_layout.addStretch()
 
+    def show_text_popup(self, url, title, typ, parse_pre=False):
+        popup = Toplevel(self.root)
+        popup.title(f"{typ} Viewer - {title}")
+        popup.geometry("1000x650")
+        popup.configure(bg=self.theme["bg"])
+        popup.resizable(True, True)
+        content_var = tk.StringVar()
+        self.status(f"Loading {typ} for {title}...")
+        # Status label
+        stat_label = Label(popup, text=f"Loading {typ}...",
+                           bg=self.theme["bg"], fg=self.theme["accent"],
+                           font=("TkDefaultFont", self.font_size))
+        stat_label.pack(pady=5)
+        # Text area
+        text_area = Text(popup, wrap="word", bg=self.theme["bg"], fg=self.theme["fg"],
+                         font=("TkDefaultFont", self.font_size))
+        text_area.pack(expand=True, fill=BOTH, padx=10, pady=10)
+        text_area.config(state="disabled")
+        # Bottom controls
+        ctrl = Frame(popup, bg=self.theme["bg"])
+        ctrl.pack(fill=tk.X)
+        Button(ctrl, text="Copy All", command=lambda: self.copy_to_clipboard(text_area.get(1.0, END)),
+               bg=self.theme["button_bg"], fg=self.theme["button_fg"]).pack(side=LEFT, padx=5)
+        Button(ctrl, text="Save As...", command=lambda: self.save_text_to_file(text_area.get(1.0, END)),
+               bg=self.theme["button_bg"], fg=self.theme["button_fg"]).pack(side=LEFT, padx=5)
+        Button(ctrl, text="Close (Esc)", command=popup.destroy,
+               bg=self.theme["button_bg"], fg=self.theme["button_fg"]).pack(side=RIGHT, padx=5)
+        self._popup_bindings(popup, text_area)
+        # Context menu
+        self._add_context_menu(text_area)
+        # Fetch in thread
+        def fetch_content():
+            try:
+                response = requests.get(url, timeout=10)
+                if parse_pre:
+                    soup = BeautifulSoup(response.content, "html.parser")
+                    pre = soup.find("pre")
+                    text = pre.text if pre else f"{typ} content not found."
+                else:
+                    text = response.text
+            except Exception as e:
+                text = f"Failed to retrieve {typ}:\n{e}"
+                log_error(text)
+            def update_gui():
+                stat_label.config(text=f"{typ} loaded.")
+                text_area.config(state="normal")
+                text_area.delete(1.0, END)
+                text_area.insert(END, text)
+                text_area.config(state="disabled")
+                self.status(f"{typ} loaded.")
+            self.root.after(0, update_gui)
+        threading.Thread(target=fetch_content, daemon=True).start()
+
     def show_text_popup(self, url, title):
         """Show a text popup dialog"""
         popup = TextPopup(self, url, title, "NWS Text Product", self.theme, self.font_size, True)
@@ -964,6 +1638,391 @@ class WeatherToolkitWidget(QWidget):
     def refresh_alerts(self):
         """Refresh alerts (placeholder - can be customized)"""
         print("Refreshing alerts...")
+
+    def fetch_colorado_alerts(self):
+        """Fetch and display Colorado NWS alerts"""
+        url = "https://alerts.weather.gov/cap/co.php?x=0"
+        dialog = AlertsDisplayDialog(self, url, "Colorado NWS Alerts", self.theme, self.font_size, self.auto_refresh_mins)
+        dialog.exec()
+
+
+    def fetch_area_alerts(self):
+        url = "https://www.weather.gov/wwamap/wwatxtget.php?cwa=pub&wwa=all"
+        self._fetch_alerts(url, "Active Area Alerts")
+
+    def open_nws_report(self):
+        webbrowser.open("https://inws.ncep.noaa.gov/report/")
+
+    def submit_resource(self):
+        mailto_link = (
+            "mailto:Jon.W5ALC@gmail.com"
+            "?subject=Colorado%20SWN%20toolkit%20Resource%20Suggestion"
+            "&body=Suggest%20a%20new%20resource%20or%20link%20here:%0A%0A"
+            "Name%20of%20Resource:%0AURL:%0ADescription%20(optional):"
+        )
+        self.launch_item(mailto_link)
+
+    def fetch_us_alerts(self):
+        url = "https://api.weather.gov/alerts/active.atom"
+        self._fetch_alerts(url, "Active US Alerts")
+        window_title = "Active Colorado Alerts"
+
+    def _fetch_alerts(self, url, window_title):
+        """
+        Fetch and display weather alerts in a popup window with search/filter functionality
+        """
+        theme = self.theme
+        font_size = self.font_size
+
+        # Create popup dialog
+        popup = QDialog(self)
+        popup.setWindowTitle(window_title)
+        popup.resize(950, 700)
+        popup.setStyleSheet(f"""
+            QDialog {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+            }}
+            QLabel {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+                font-size: {font_size}px;
+            }}
+            QLineEdit {{
+                background-color: {theme["entry_bg"]};
+                color: {theme["entry_fg"]};
+                border: 1px solid #666;
+                padding: 6px;
+                font-size: {font_size}px;
+            }}
+            QPushButton {{
+                background-color: {theme["button_bg"]};
+                color: {theme["button_fg"]};
+                border: 1px solid #666;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: {font_size}px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get("button_hover", theme["button_bg"])};
+                border-color: {theme.get("accent", "#00d4ff")};
+            }}
+            QTextEdit {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+                border: 1px solid #666;
+                font-size: {font_size}px;
+                padding: 8px;
+            }}
+        """)
+
+        # Main layout
+        layout = QVBoxLayout(popup)
+
+        # Hint label
+        hint = QLabel("Tip: Search for specific keywords.")
+        hint.setStyleSheet(f"color: {theme['accent']};")
+        layout.addWidget(hint)
+
+        # Search frame
+        search_frame = QFrame()
+        search_layout = QHBoxLayout(search_frame)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+
+        search_label = QLabel("Filter alerts: ")
+        search_layout.addWidget(search_label)
+
+        search_entry = QLineEdit()
+        search_entry.setPlaceholderText("Type to filter alerts...")
+        search_layout.addWidget(search_entry)
+
+        refresh_btn = QPushButton("Refresh Now")
+        search_layout.addWidget(refresh_btn)
+
+        search_layout.addStretch()
+        layout.addWidget(search_frame)
+
+        # Status label
+        stat_label = QLabel("Loading alerts...")
+        stat_label.setStyleSheet(f"color: {theme['accent']};")
+        layout.addWidget(stat_label)
+
+        # Text area
+        text_area = QTextEdit()
+        text_area.setReadOnly(True)
+        text_area.setWordWrapMode(QTextEdit.WrapMode.WordWrap)
+        layout.addWidget(text_area)
+
+        # Add context menu (assuming this method exists)
+        if hasattr(self, '_add_context_menu'):
+            self._add_context_menu(text_area)
+
+        # Bottom controls
+        ctrl_frame = QFrame()
+        ctrl_layout = QHBoxLayout(ctrl_frame)
+        ctrl_layout.setContentsMargins(0, 0, 0, 0)
+
+        copy_btn = QPushButton("Copy All")
+        ctrl_layout.addWidget(copy_btn)
+
+        save_btn = QPushButton("Save As...")
+        ctrl_layout.addWidget(save_btn)
+
+        ctrl_layout.addStretch()
+
+        close_btn = QPushButton("Close (Esc)")
+        ctrl_layout.addWidget(close_btn)
+
+        layout.addWidget(ctrl_frame)
+
+        # Internal state
+        entries = []  # Stores the fetched XML entries
+        last_update = ""
+
+        # Setup text formats for different alert types
+        warning_format = QTextCharFormat()
+        warning_format.setForeground(QColor(theme["warning"]))
+        warning_format.setFontWeight(QFont.Weight.Bold)
+
+        watch_format = QTextCharFormat()
+        watch_format.setForeground(QColor(theme["watch"]))
+
+        advisory_format = QTextCharFormat()
+        advisory_format.setForeground(QColor(theme["advisory"]))
+
+        statement_format = QTextCharFormat()
+        statement_format.setForeground(QColor(theme["advisory"]))
+
+        county_format = QTextCharFormat()
+        county_format.setForeground(QColor(theme["county"]))
+        county_format.setFontWeight(QFont.Weight.Bold)
+
+        highlight_format = QTextCharFormat()
+        highlight_format.setBackground(QColor("#204060"))
+        highlight_format.setForeground(QColor("yellow"))
+
+        link_format = QTextCharFormat()
+        link_format.setForeground(QColor("blue"))
+        link_format.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+
+        # Create fetcher thread
+        fetcher = None
+
+        def load_alerts():
+            """Load alerts from the server"""
+            nonlocal fetcher, entries, last_update
+
+            stat_label.setText("Loading alerts...")
+            if hasattr(self, 'status'):
+                self.status("Loading alerts...")
+
+            # Stop any existing fetcher
+            if fetcher and fetcher.isRunning():
+                fetcher.quit()
+                fetcher.wait()
+
+            # Create new fetcher
+            fetcher = AlertFetcher(url, popup)
+            fetcher.alerts_fetched.connect(on_alerts_fetched)
+            fetcher.fetch_error.connect(on_fetch_error)
+            fetcher.start()
+
+        def on_alerts_fetched(new_entries, timestamp):
+            """Handle successfully fetched alerts"""
+            nonlocal entries, last_update
+            entries = new_entries
+            last_update = timestamp
+            apply_filter()
+
+        def on_fetch_error(error_msg):
+            """Handle fetch errors"""
+            nonlocal entries, last_update
+            entries = []
+            last_update = ""
+            if hasattr(self, 'log_error'):
+                self.log_error(f"Error fetching alerts: {error_msg}")
+            stat_label.setText(f"Error loading alerts: {error_msg}")
+            apply_filter()
+
+        def apply_filter():
+            """Apply search filter to the loaded alerts"""
+            search_term = search_entry.text().lower()
+
+            # Clear text area
+            text_area.clear()
+
+            # Group alerts by county
+            grouped_alerts = {}
+
+            for entry in entries:
+                # Extract data from XML
+                title_elem = entry.find("{http://www.w3.org/2005/Atom}title")
+                summary_elem = entry.find("{http://www.w3.org/2005/Atom}summary")
+                link_elem = entry.find("{http://www.w3.org/2005/Atom}link")
+                area_elem = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
+
+                # Get text content
+                title = title_elem.text if title_elem is not None else ""
+                summary = summary_elem.text if summary_elem is not None else ""
+                link = link_elem.attrib.get("href", "") if link_elem is not None else ""
+
+                # Get counties
+                if area_elem is not None and area_elem.text:
+                    counties = [c.strip() for c in area_elem.text.split(';')]
+                else:
+                    counties = ["Active NWS Alerts"]
+
+                # Filter by search term
+                if not search_term or search_term in title.lower() or search_term in summary.lower():
+                    for county in counties:
+                        if county not in grouped_alerts:
+                            grouped_alerts[county] = []
+                        grouped_alerts[county].append((title, summary, link))
+
+            # Display grouped alerts
+            cursor = text_area.textCursor()
+            links = {}  # Store link positions for click handling
+
+            for county, alerts in grouped_alerts.items():
+                # County header
+                cursor.insertText(f"=== {county} ===\n", county_format)
+
+                for title, summary, link in alerts:
+                    # Determine alert type and format
+                    title_lower = title.lower()
+                    if "warning" in title_lower:
+                        alert_format = warning_format
+                    elif "watch" in title_lower:
+                        alert_format = watch_format
+                    elif "advisory" in title_lower:
+                        alert_format = advisory_format
+                    elif "statement" in title_lower:
+                        alert_format = statement_format
+                    else:
+                        alert_format = QTextCharFormat()
+
+                    # Insert title
+                    title_start = cursor.position()
+                    cursor.insertText(f"Title: {title}\n", alert_format)
+
+                    # Highlight search term in title
+                    if search_term and search_term in title.lower():
+                        highlight_search_term(title_start + 7, title, search_term)  # 7 = len("Title: ")
+
+                    # Insert summary
+                    summary_start = cursor.position()
+                    cursor.insertText(f"Summary: {summary}\n")
+
+                    # Highlight search term in summary
+                    if search_term and search_term in summary.lower():
+                        highlight_search_term(summary_start + 9, summary, search_term)  # 9 = len("Summary: ")
+
+                    # Insert link
+                    if link:
+                        link_start = cursor.position()
+                        cursor.insertText(f"Link: {link}\n\n")
+
+                        # Store link for click handling
+                        links[link_start] = link
+
+                        # Apply link formatting
+                        link_cursor = QTextCursor(text_area.document())
+                        link_cursor.setPosition(link_start)
+                        link_cursor.setPosition(cursor.position(), QTextCursor.MoveMode.KeepAnchor)
+                        link_cursor.mergeCharFormat(link_format)
+                    else:
+                        cursor.insertText("\n")
+
+            # Update status
+            if entries:
+                stat_label.setText(f"Alerts loaded. Last update: {last_update}")
+                if hasattr(self, 'status'):
+                    self.status(f"{window_title} loaded at {last_update}")
+            else:
+                stat_label.setText("No alerts found" + (f" for '{search_entry.text()}'" if search_entry.text() else ""))
+
+            # Store links for click handling
+            text_area.setProperty("alert_links", links)
+
+        def highlight_search_term(start_pos, text, search_term):
+            """Highlight search term in text"""
+            text_lower = text.lower()
+            term_lower = search_term.lower()
+
+            pos = 0
+            while True:
+                pos = text_lower.find(term_lower, pos)
+                if pos == -1:
+                    break
+
+                # Create cursor for highlighting
+                highlight_cursor = QTextCursor(text_area.document())
+                highlight_cursor.setPosition(start_pos + pos)
+                highlight_cursor.setPosition(start_pos + pos + len(search_term), QTextCursor.MoveMode.KeepAnchor)
+                highlight_cursor.mergeCharFormat(highlight_format)
+
+                pos += len(search_term)
+
+        def handle_text_click(event):
+            """Handle mouse clicks on text area (for links)"""
+            cursor = text_area.cursorForPosition(event.position().toPoint())
+            pos = cursor.position()
+
+            # Get stored links
+            links = text_area.property("alert_links")
+            if not links:
+                return
+
+            # Find clicked link
+            for link_pos, url in links.items():
+                # Check if click is within link range (approximate)
+                if abs(pos - link_pos) < 100:  # Adjust range as needed
+                    QDesktopServices.openUrl(QUrl(url))
+                    break
+
+        # Override mouse press event for link clicking
+        original_mouse_press = text_area.mousePressEvent
+        text_area.mousePressEvent = lambda event: (
+            handle_text_click(event) if event.button() == Qt.MouseButton.LeftButton else None,
+            original_mouse_press(event)
+        )[1]
+
+        # Connect signals
+        refresh_btn.clicked.connect(load_alerts)
+        search_entry.textChanged.connect(apply_filter)
+        search_entry.returnPressed.connect(apply_filter)
+
+        # Button actions
+        copy_btn.clicked.connect(lambda: self.copy_to_clipboard(text_area.toPlainText()) if hasattr(self, 'copy_to_clipboard') else None)
+        save_btn.clicked.connect(lambda: self.save_text_to_file(text_area.toPlainText()) if hasattr(self, 'save_text_to_file') else None)
+        close_btn.clicked.connect(popup.close)
+
+        # Keyboard shortcuts
+        def handle_key_press(event):
+            if event.key() == Qt.Key.Key_Escape:
+                popup.close()
+            else:
+                QDialog.keyPressEvent(popup, event)
+
+        popup.keyPressEvent = handle_key_press
+
+        # Set focus to search entry
+        search_entry.setFocus()
+
+        # Auto-refresh timer
+        if hasattr(self, 'auto_refresh_mins'):
+            refresh_timer = QTimer()
+            refresh_timer.timeout.connect(load_alerts)
+            refresh_timer.start(self.auto_refresh_mins * 60000)
+
+        # Initial load
+        load_alerts()
+
+        if hasattr(self, 'status'):
+            self.status(f"{window_title} opened.")
+
+        # Show popup
+        popup.exec()
 
     def apply_theme(self):
         """Apply the current theme to the widget"""
@@ -1088,31 +2147,12 @@ class NetData:
             if hasattr(self, key):
                 setattr(self, key, value)
 
-class TimeWidget(QLabel):
-    """Real-time clock widget"""
-    def __init__(self):
-        super().__init__()
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
-
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_time)
-        self.timer.start(1000)  # Update every second
-        self.update_time()
-
-    def update_time(self):
-        time_info = get_current_mountain_time()
-        self.setText(f"{time_info['full']} • {time_info['date']}")
-
-        # Change color if it's net time
-        if time_info['datetime'].strftime("%H:%M") == Config.NET_TIME and is_net_day():
-            self.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c; background-color: #fff3cd;")
-        else:
-            self.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
 
 class AnimatedButton(QPushButton):
     """Custom button with hover animations"""
     def __init__(self, text, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(text, parent)
         self.setMinimumHeight(40)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1128,6 +2168,8 @@ class AnimatedButton(QPushButton):
 class StatusBar(QFrame):
     """Enhanced status bar with icons and animations"""
     def __init__(self):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__()
         self.setFrameStyle(QFrame.Shape.StyledPanel)
         self.setMaximumHeight(35)
@@ -1183,6 +2225,8 @@ class StatusBar(QFrame):
 class WeatherDialog(QDialog):
     """Dialog for managing weather announcements"""
     def __init__(self, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle("Weather Announcement Manager")
         self.setMinimumSize(600, 400)
@@ -1553,6 +2597,8 @@ class ModernButton(QPushButton):
 
 class ModernGroupBox(QGroupBox):
     def __init__(self, title, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(title, parent)
 
     def apply_style(self, theme):
@@ -1576,7 +2622,47 @@ class ModernGroupBox(QGroupBox):
             }}
         """)
 
+class AlertFetcher(QThread):
+    alerts_loaded = pyqtSignal(str)  # Match your original signal name
+    progress_updated = pyqtSignal(int)
+
+    def __init__(self, url, parse_atom=True, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
+        super().__init__(parent)
+        self.url = url
+        self.parse_atom = parse_atom
+
+    def run(self):
+        text = ""
+        try:
+            self.progress_updated.emit(25)
+            resp = requests.get(self.url, timeout=12)
+            self.progress_updated.emit(50)
+
+            if self.parse_atom:
+                rootx = ET.fromstring(resp.content)
+                entries = rootx.findall("{http://www.w3.org/2005/Atom}entry")
+                self.progress_updated.emit(75)
+
+                for entry in entries:
+                    title = entry.find("{http://www.w3.org/2005/Atom}title")
+                    summary = entry.find("{http://www.w3.org/2005/Atom}summary")
+                    link = entry.find("{http://www.w3.org/2005/Atom}link")
+                    area = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
+                    counties = area.text if area is not None and area.text else ""
+                    text += f"🚨 {title.text if title is not None else 'No Title'}\n📝 {summary.text if summary is not None else 'No Summary'}\n🗺️ {counties}\n🔗 {link.attrib.get('href') if link is not None else ''}\n\n"
+            else:
+                text = resp.text
+
+            self.progress_updated.emit(100)
+        except Exception as e:
+            text = f"❌ Failed to fetch alerts:\n{e}"
+
+        self.alerts_loaded.emit(text)
+
 class SevereWeatherWindow(QWidget):
+
     """Main application window with enhanced features"""
     APP_NAME = "Colorado Severe Weather Outlook Net Controller"
     config = {
@@ -1655,6 +2741,91 @@ class SevereWeatherWindow(QWidget):
         # Keyboard shortcuts
         self.setup_shortcuts()
 
+    def apply_theme(self):
+        """Apply the current theme to the application"""
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {self.theme['bg']};
+                color: {self.theme['fg']};
+            }}
+            QWidget {{
+                background-color: {self.theme['bg']};
+                color: {self.theme['fg']};
+            }}
+            QPushButton {{
+                background-color: {self.theme['button_bg']};
+                color: {self.theme['button_fg']};
+                border: 1px solid {self.theme['accent']};
+                padding: 8px;
+                margin: 2px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.theme['button_active_bg']};
+                color: {self.theme['button_active_fg']};
+            }}
+            QGroupBox {{
+                font-weight: bold;
+                color: {self.theme['section_fg']};
+                border: 2px solid {self.theme['accent']};
+                border-radius: 5px;
+                margin: 10px 0px;
+                padding-top: 10px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 0 5px;
+            }}
+            QStatusBar {{
+                background-color: {self.theme['status_bg']};
+                color: {self.theme['status_fg']};
+            }}
+            QMenuBar {{
+                background-color: {self.theme['button_bg']};
+                color: {self.theme['button_fg']};
+            }}
+            QMenuBar::item:selected {{
+                background-color: {self.theme['button_active_bg']};
+            }}
+            QMenu {{
+                background-color: {self.theme['button_bg']};
+                color: {self.theme['button_fg']};
+                border: 1px solid {self.theme['accent']};
+            }}
+            QMenu::item:selected {{
+                background-color: {self.theme['button_active_bg']};
+            }}
+        """)
+
+
+    def create_top_buttons(self, layout):
+        button_layout = QHBoxLayout()
+
+        buttons = [
+            ("Colorado Alerts (Alt+C)", self.fetch_colorado_alerts, "Show current Colorado NWS alerts."),
+            ("US Alerts (Alt+U)", self.fetch_us_alerts, "Show all US NWS alerts."),
+            ("GOES Snapshot (Alt+G)", self.show_satellite_image, "Show latest GOES satellite image."),
+            ("Report Weather to NWS (Alt+A)", self.open_nws_report, "Send weather report directly to the NWS."),
+            ("Settings", self.open_settings, "Open application settings."),
+            ("Help (F1)", self.show_help, "Show help/documentation."),
+            ("Submit Resource", self.submit_resource, "Suggest a new resource for the program."),
+            ("Exit (Alt+Q)", self.close, "Exit the application."),
+        ]
+
+        for text, callback, tooltip in buttons:
+            btn = QPushButton(text)
+            btn.clicked.connect(callback)
+            btn.setToolTip(tooltip)
+            button_layout.addWidget(btn)
+
+        layout.addLayout(button_layout)
+
+    def fetch_colorado_alerts(self):
+        """Fetch and display Colorado NWS alerts"""
+        url = "https://alerts.weather.gov/cap/co.php?x=0"
+        dialog = AlertsDisplayDialog(self, url, "Colorado NWS Alerts", self.config['theme'], self.config['font_size'], self.config['auto_refresh_mins'])
+        dialog.exec()
+
     def create_header(self):
         """Create the application header with real-time clock"""
         header = QFrame()
@@ -1701,11 +2872,11 @@ class SevereWeatherWindow(QWidget):
         """Update the net status indicator"""
         time_info = get_current_mountain_time()
         if is_net_day():
-            current_hour = time_info['datetime'].hour
+            current_hour = int(time_info['hour'])
             if current_hour == 13:  # 1 PM
                 self.net_status.setText("🔴 NET ACTIVE")
                 self.net_status.setStyleSheet("color: #e74c3c; font-weight: bold; font-size: 14px;")
-            elif 12 <= current_hour <= 14:  # Around net time
+            elif 12 <= current_hour <= 13:  # Around net time
                 self.net_status.setText("🟡 NET SOON")
                 self.net_status.setStyleSheet("color: #f39c12; font-weight: bold; font-size: 14px;")
             else:
@@ -2022,9 +3193,147 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         offices_layout = QGridLayout()
         row = 0
         col = 0
+    def init_weather_tab(self):
+        """Initialize weather information tab"""
+        self.weather_tab = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+
+        # NWS Office Information
+        nws_group = QGroupBox("🏢 NWS Weather Forecast Offices Serving Colorado")
+        nws_layout = QVBoxLayout()
+
+        # Create office cards
+        offices_layout = QGridLayout()
+        row = 0
+        col = 0
 
         for office_name, office_data in NWS_OFFICES.items():
             office_card = self.create_nws_office_card(office_name, office_data)
+            offices_layout.addWidget(office_card, row, col)
+            col += 1
+            if col > 2:  # 2 columns
+                col = 0
+                row += 1
+
+        nws_layout.addLayout(offices_layout)
+        nws_group.setLayout(nws_layout)
+
+        # Current conditions placeholder
+        conditions_group = QGroupBox("🌤️ Current Weather Conditions")
+        conditions_layout = QVBoxLayout()
+
+        self.conditions_display = QTextEdit()
+        self.conditions_display.setReadOnly(True)
+        self.conditions_display.setMaximumHeight(200)
+        self.conditions_display.setPlaceholderText(
+            "Weather conditions will be displayed here...\n\n"
+            "Note: This is a placeholder for weather data integration.\n"
+            "In a production environment, this would connect to NWS APIs\n"
+            "for real-time weather information."
+        )
+
+        refresh_weather_btn = AnimatedButton("🔄 Refresh Weather Data")
+        refresh_weather_btn.clicked.connect(self.refresh_weather_data)
+
+        conditions_layout.addWidget(self.conditions_display)
+        conditions_layout.addWidget(refresh_weather_btn)
+        conditions_group.setLayout(conditions_layout)
+
+        # Announcements preview
+        announcements_group = QGroupBox("📢 Current Weather Announcements")
+        announcements_layout = QVBoxLayout()
+
+        self.announcements_display = QTextEdit()
+        self.announcements_display.setReadOnly(True)
+        self.announcements_display.setMaximumHeight(150)
+
+        edit_announcements_btn = AnimatedButton("✏️ Edit Announcements")
+        edit_announcements_btn.clicked.connect(self.manage_weather_announcements)
+
+        announcements_layout.addWidget(self.announcements_display)
+        announcements_layout.addWidget(edit_announcements_btn)
+        announcements_group.setLayout(announcements_layout)
+
+        layout.addWidget(nws_group)
+        layout.addWidget(conditions_group)
+        layout.addWidget(announcements_group)
+        layout.addStretch()
+
+        self.weather_tab.setLayout(layout)
+        self.tab_widget.addTab(self.weather_tab, "🌦️ Weather")
+
+        # Update announcements display
+        self.update_announcements_display()
+
+    def create_nws_office_card(self, name: str, data: Dict[str, str], theme: Dict[str, str]) -> QFrame:
+        """Create a card widget for NWS office information"""
+        card = QFrame()
+        card.setFrameStyle(QFrame.Shape.Box)
+        card.setStyleSheet(f"""
+            QFrame {{
+                border: 1px solid {theme['group_border']};
+                border-radius: 2px;
+                background-color: {theme['group_bg']};
+                color: {theme['fg']};
+                padding: 2px;
+            }}
+        """)
+        # Remove fixed heights to allow dynamic sizing
+        card.setMinimumHeight(80)  # Reduced minimum to allow more shrinking
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        # Main layout with better spacing
+        layout = QVBoxLayout()
+        layout.setSpacing(6)  # Slightly reduced for compact view
+        layout.setContentsMargins(8, 8, 8, 8)  # Reduced margins for smaller windows
+
+        # Office name and code - larger, more readable font
+        header = QLabel(f"{name} ({data['code']})")
+        header.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {theme['section_fg']};")
+        header.setWordWrap(True)  # Allow wrapping for long names
+        header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        header.setMinimumHeight(0)  # Allow it to shrink
+
+        # Coverage area - larger font
+        areas = QLabel(f"Areas: {data['areas']}")
+        areas.setWordWrap(True)
+        areas.setStyleSheet(f"color: {theme['fg_secondary']}; font-size: 12px;")
+        areas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        areas.setMinimumHeight(0)  # Allow it to shrink
+
+        # Contact info layout with better spacing
+        contact_layout = QHBoxLayout()
+        contact_layout.setSpacing(12)
+        contact_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins from nested layout
+
+        # Phone and web labels - larger, more readable fonts
+        phone_label = QLabel(f"📞 {data['phone']}")
+        phone_label.setStyleSheet(f"font-size: 11px; color: {theme['fg_secondary']};")
+        phone_label.setWordWrap(True)  # Allow wrapping
+        phone_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        phone_label.setMinimumHeight(0)
+
+        web_label = QLabel(f"🌐 {data['url'].replace('https://', '')}")
+        web_label.setStyleSheet(f"font-size: 11px; color: {theme['accent']};")
+        web_label.setWordWrap(True)  # Allow wrapping
+        web_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        web_label.setMinimumHeight(0)
+
+        # Add contact widgets to layout
+        contact_layout.addWidget(phone_label)
+        contact_layout.addWidget(web_label)
+
+        # Add all components to main layout
+        layout.addWidget(header)
+        layout.addWidget(areas)
+        layout.addLayout(contact_layout)
+        # Remove addStretch() to allow natural sizing instead of forcing extra space
+
+        card.setLayout(layout)
+        return card
+        for office_name, office_data in NWS_OFFICES.items():
+            office_card = self.create_nws_office_card(office_name, office_data, self.theme)
             offices_layout.addWidget(office_card, row, col)
             col += 1
             if col > 2:  # 2 columns
@@ -2193,9 +3502,9 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
 
         # Quick alerts button
         alerts_btn = ModernButton("🚨 Colorado Active Alerts")
-        alerts_btn.clicked.connect(self.show_alerts)
+        window_title = "Active Colorado Alerts"
+        alerts_btn.clicked.connect(lambda checked, url="https://alerts.weather.gov/cap/co.php?x=0": self.fetch_colorado_alerts())
         left_layout.addWidget(alerts_btn)
-
         left_layout.addStretch()
         left_panel.setMaximumWidth(350)
 
@@ -2333,35 +3642,202 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         popup = SpotterImagePopup(self, url, self.current_theme, self.config["font_size"])
         popup.exec()
 
-    def show_alerts(self):
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
+    def _fetch_alerts(self, url, window_title):
+        # theme = themes.get(self.config.get("theme", "light"), themes["light"])
+        # font_size = self.config.get("font_size", 12)
+        # window_title = "Active Colorado Alerts"
 
-        self.fetcher = AlertFetcher("https://alerts.weather.gov/cap/co.php?x=0")
-        self.fetcher.alerts_loaded.connect(self.display_alerts)
-        self.fetcher.progress_updated.connect(self.progress_bar.setValue)
-        self.fetcher.start()
-
-    def display_alerts(self, alert_text):
-        self.progress_bar.setVisible(False)
+        # Setup dialog
         popup = QDialog(self)
-        popup.setWindowTitle("🚨 Colorado Active Weather Alerts")
-        popup.setMinimumSize(1000, 700)
+        popup.setWindowTitle(window_title)
+        popup.resize(950, 700)
+        popup.setStyleSheet(f"""
+            QDialog, QLabel, QTextEdit, QLineEdit {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+            }}
+            QPushButton {{
+                background-color: {theme.get("button_bg", "#4a90e2")};
+                color: {theme.get("button_fg", "white")};
+                padding: 6px 12px;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get("button_hover", "#357abd")};
+            }}
+        """)
 
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(popup)
+        font = QFont("SansSerif", font_size)
 
+        # Search bar
+        search_frame = QFrame()
+        search_layout = QHBoxLayout(search_frame)
+        search_entry = QLineEdit()
+        search_entry.setFont(font)
+        refresh_btn = QPushButton("Refresh")
+        search_layout.addWidget(QLabel("Filter alerts: "))
+        search_layout.addWidget(search_entry)
+        search_layout.addWidget(refresh_btn)
+        layout.addWidget(search_frame)
+
+        # Status
+        stat_label = QLabel("Loading alerts...")
+        stat_label.setFont(font)
+        layout.addWidget(stat_label)
+
+        # Text output
         text_area = QTextEdit()
-        text_area.setPlainText(alert_text)
+        text_area.setFont(font)
         text_area.setReadOnly(True)
-        text_area.setFont(QFont("Consolas", self.config["font_size"]))
         layout.addWidget(text_area)
 
-        close_btn = QPushButton("❌ Close")
-        close_btn.clicked.connect(popup.close)
-        layout.addWidget(close_btn)
+        # Controls
+        ctrl_frame = QFrame()
+        ctrl_layout = QHBoxLayout(ctrl_frame)
+        copy_btn = QPushButton("Copy All")
+        save_btn = QPushButton("Save As...")
+        close_btn = QPushButton("Close")
+        ctrl_layout.addWidget(copy_btn)
+        ctrl_layout.addWidget(save_btn)
+        ctrl_layout.addStretch()
+        ctrl_layout.addWidget(close_btn)
+        layout.addWidget(ctrl_frame)
 
-        popup.setLayout(layout)
-        popup.setStyleSheet(self.get_dialog_style())
+        def make_format(color, bold=False):
+            f = QTextCharFormat()
+            f.setForeground(QColor(color))
+            if bold:
+                f.setFontWeight(QFont.Weight.Bold)
+            return f
+
+        warning_fmt = make_format(theme.get("warning", "#ff4444"))
+        watch_fmt = make_format(theme.get("watch", "#ffaa00"))
+        adv_fmt = make_format(theme.get("advisory", "#88aaff"))
+        stmt_fmt = make_format(theme.get("statement", "#88aaff"))
+        county_fmt = make_format(theme.get("county", "#00ff88"))
+        highlight_fmt = QTextCharFormat()
+        highlight_fmt.setBackground(QColor("#204060"))
+        highlight_fmt.setForeground(QColor("yellow"))
+        link_fmt = QTextCharFormat()
+        link_fmt.setForeground(QColor("blue"))
+        link_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+
+        entries = []
+        last_update = [""]
+
+        def load_alerts():
+            stat_label.setText("Loading alerts...")
+
+            def run():
+                try:
+                    url="https://alerts.weather.gov/cap/co.php?x=0"
+                    response = requests.get(url, timeout=10)
+                    root = ET.fromstring(response.content)
+                    entries.clear()
+                    entries.extend(root.findall("{http://www.w3.org/2005/Atom}entry"))
+                    last_update[0] = time.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception as e:
+                    self.log_error(f"Error fetching alerts: {e}")
+                    entries.clear()
+                    last_update[0] = ""
+
+                # Safely call apply_filter in GUI thread
+                QTimer.singleShot(0, apply_filter)
+
+            threading.Thread(target=run, daemon=True).start()
+
+        def apply_filter():
+            text_area.setReadOnly(False)
+            text_area.clear()
+            term = search_entry.text().lower()
+            cursor = text_area.textCursor()
+            grouped = {}
+
+            for entry in entries:
+                title = entry.find("{http://www.w3.org/2005/Atom}title")
+                summary = entry.find("{http://www.w3.org/2005/Atom}summary")
+                link = entry.find("{http://www.w3.org/2005/Atom}link")
+                area = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
+
+                if title is None or summary is None:
+                    continue
+
+                title_text = title.text or ""
+                summary_text = summary.text or ""
+                href = link.attrib.get("href") if link is not None else ""
+                counties = [c.strip() for c in area.text.split(";")] if area is not None and area.text else ["Active Alerts"]
+
+                if term in title_text.lower() or term in summary_text.lower():
+                    for c in counties:
+                        grouped.setdefault(c, []).append((title_text, summary_text, href))
+
+            # Display results
+            if not grouped:
+                cursor.insertText("No alerts found matching your criteria.\n")
+            else:
+                for county, alerts in grouped.items():
+                    cursor.insertText(f"=== {county} ===\n", county_fmt)
+                    for title, summary, link in alerts:
+                        if "warning" in title.lower():
+                            tag_fmt = warning_fmt
+                        elif "watch" in title.lower():
+                            tag_fmt = watch_fmt
+                        elif "advisory" in title.lower():
+                            tag_fmt = adv_fmt
+                        elif "statement" in title.lower():
+                            tag_fmt = stmt_fmt
+                        else:
+                            tag_fmt = QTextCharFormat()
+
+                        cursor.insertText(f"Title: {title}\n", tag_fmt)
+                        cursor.insertText(f"Summary: {summary}\n")
+
+                        if link:
+                            start = cursor.position()
+                            cursor.insertText(f"Link: {link}\n\n", link_fmt)
+                            end = cursor.position()
+                            text_area.viewport().setProperty(f"link_{start}", link)
+
+            text_area.setReadOnly(True)
+
+            # Update status
+            if last_update[0]:
+                stat_label.setText(f"Alerts loaded. Last update: {last_update[0]}")
+                self.status(f"{window_title} loaded at {last_update[0]}")
+            else:
+                stat_label.setText("Failed to load alerts")
+                self.status(f"Failed to load {window_title}")
+
+        def handle_text_click(event):
+            pos = text_area.cursorForPosition(event.pos()).position()
+            for prop in text_area.dynamicPropertyNames():
+                prop_str = prop.data().decode()
+                if prop_str.startswith("link_"):
+                    link_pos = int(prop_str.split("_")[1])
+                    if abs(link_pos - pos) < 200:
+                        url = text_area.property(prop_str)
+                        if url:
+                            webbrowser.open(url)
+                            break
+
+        # Connects
+        text_area.mousePressEvent = handle_text_click
+        refresh_btn.clicked.connect(load_alerts)
+        search_entry.textChanged.connect(apply_filter)
+        copy_btn.clicked.connect(lambda: self.copy_to_clipboard(text_area.toPlainText()))
+        save_btn.clicked.connect(lambda: self.save_text_to_file(text_area.toPlainText()))
+        close_btn.clicked.connect(popup.close)
+#        QShortcut(QKeySequence(Qt.Key.Key_Escape), popup).activated.connect(popup.close)
+
+        # Auto refresh
+        refresh_interval = self.config.get("auto_refresh_mins", 5) * 60000
+        refresh_timer = QTimer(popup)
+        refresh_timer.timeout.connect(load_alerts)
+        refresh_timer.start(refresh_interval)
+
+        # Initial load
+        load_alerts()
         popup.exec()
 
 
@@ -2516,30 +3992,53 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
 
         self.sections = []
 
-        # Section 1: Opening
-        opening = f"""SKYHUBLINK SEVERE WEATHER OUTLOOK NET
-{time_info['date']} - {time_info['full']}
+        pre_opening = f"""1250-1255…
+THE Wx OUTLOOK NET COVERING THE CENTRAL ROCKIES & HIGH PLAINS REGION WILL AIR ON THESE FREQUENCIES IN (minutes)…
+Open Net following Analog repeater IDs at the top of the hour…"""
 
-Good afternoon. This is {self.net_data.name}, {self.net_data.callsign},
-located in {self.net_data.location}.
+        self.sections.append(("Pre-Opening", pre_opening))
 
-I will be today's Net Control operator for the Skyhublink Severe Weather Outlook Net.
+    # Section 2: Opening
+        opening = f"""NET OPEN
 
-This net meets Monday through Friday at 1:00 PM Mountain Time on the
-SkyHubLink repeater lonking system to provide severe weather information and coordination
-for the 5 National Weather Service Weather Forecast Offices with whom we partner.
+Happy {time_info['day']}! Welcome to the Wx Outlook Net from the Severe Wx Network here on the Skyhub repeater-linking system, where we cover the Central Rockies and High Plains Region.
 
-{"Today's net logger is " + self.net_data.logger_name + ", " + self.net_data.logger_callsign + "." if self.net_data.logger_callsign else ""}
+Your Net Control is {self.net_data.name}, {self.net_data.callsign} located in {self.net_data.location}.
+
+{self.net_data.logger_name}, {self.net_data.logger_callsign} is your net logging host.
+
+This briefing airs Mondays thru Fridays at 1300 MT on the SkyHubLink.com system and whenever else needed.
+
+The Severe Wx Network is on air in the CO Severe Wx Room when the region is under threat. When severe wx threatens your area, your nearest rptrs will be connected to the Svr Rm.
+
+That room operates under 2 conditions:
+Before svr wx is widespread, no net is called and the room is open to chat related to the wx at hand by keeping transmissions shorter and leaving 5-7 sec in between.
+
+Once wx goes severe and/or more widespread and/or tornados are involved, the room goes into Net Mode. During that, all transmissions must be short, pass thru NC, and be directly related to a severe storm report.
+
+The 485322 AllStar Weather Hub is now bridged during this net, so those who are connected there for the severe room will hear this net.
 
 PLEASE allow 3-5 seconds between transmissions, 1.5 seconds for keyup and then begin speaking. ALSO, keep the PTT pushed a half second or so after your last word. That allows your last word not to be cut off.
 
 This is a directed NET. All check-ins must go through net control."""
-        layout = QVBoxLayout()
-        layout.setSpacing(15)
 
         self.sections.append(("Opening", opening))
 
-        # Section 2: Weather Announcements
+    # Section 3: Access Information
+        access_info = f"""To access the Severe Wx Room at Reflector XLX303a—
+
+EchoLink NC2WX-L, Node 155536
+BM/DMR 31083
+Wires-X Room 65045
+Allstar on Node 485322 or 289800
+YSF 30300 (switch to module A, DGID 10)
+D-STAR XRF/DCS303A
+
+To monitor the CO Severe Rm go to hose.brandmeister.network. Click on the player upper right and type 31083."""
+
+        self.sections.append(("Access Information", access_info))
+
+    # Section 4: Weather Announcements
         weather_text = "SEVERE WEATHER OUTLOOK ANNOUNCEMENTS:\n\n"
         for i, announcement in enumerate(self.net_data.weather_announcements, 1):
             weather_text += f"{i}. {announcement}\n\n"
@@ -2548,8 +4047,12 @@ This is a directed NET. All check-ins must go through net control."""
 
         self.sections.append(("Weather Outlook", weather_text))
 
-        # Section 3: NWS Office Information
-        nws_info = """NATIONAL WEATHER SERVICE OFFICES SERVING COLORADO:
+    # Section 5: NWS Office Information & Net Procedures
+        nws_procedures = f"""During this net, we provide information to Skywarn Storm Spotters for the 5 National Weather Services with whom we are Core Partners here in the central High Plains and Rockies region.
+
+Following some headlines, we pick up with NWS Grand Jct on the Western Slope of CO and eastern UT, then work clockwise around the state before moving to the NWS Cheyenne forecast area.
+
+NATIONAL WEATHER SERVICE OFFICES SERVING COLORADO:
 
 The following NWS Weather Forecast Offices serve Colorado:
 
@@ -2568,22 +4071,58 @@ The following NWS Weather Forecast Offices serve Colorado:
 • Cheyenne (CYS) - Northeastern Colorado
   Phone: 307-772-2468, Website: weather.gov/cys
 
-For current weather information, please visit weather.gov or contact
-your local NWS office directly."""
+For current weather information, please visit weather.gov or contact your local NWS office directly.
 
-        self.sections.append(("NWS Offices", nws_info))
+Should there be an emergency, please key-in with 'break-break-break' and we'll suspend the net for your traffic.
 
-        # Section 4: Check-ins
-        checkin_text = """CHECK-IN PROCEDURES:
+This is a linked system, so please key and wait 1½ or 2 seconds before speaking and hang onto that PTT for an equal time afterward so that we hear your entire transmission.
 
-We will now take over-the-air check-ins from stations across Colorado.
+Just as with severe storm reports, when sending photos, always include:
+Event time, specific location (county if possible), direction camera is looking, and detailed explanation of the severe event you see.
 
-First, as a courtesy, mobiles and portables. Mobile and portable stations come now with your call sign twice.
+If you're sharing a non-severe pic with folks, please type non-severe at the head of the caption so I can quickly overlook it for relay.
 
-Next up, We'll take check-in's from analog stations. Any Analog FM stations please come now with your callsign twice.
+You will hear more weather info in the Svr room than on your local repeater, but your rptr will be connected to the room when severe wx is threatening your area. Stay tuned there for severe announcements and to report your severe observations for relay to the appropriate NWS.
 
-Next up we'll take check-in's from digital stations, digital stations callsign once
-"""
+The KB5YZB analog 447.100 Mt Chief repeater is often connected to the Svr room when that room is active. Many thanks to Brett for this service. When storms are more than about 50 miles from the metro area, I usually don't connect it. Let us know what you think about this."""
+
+        self.sections.append(("NWS Offices & Procedures", nws_procedures))
+
+    # Section 6: Telegram Information
+        telegram_info = f"""SWN has 2 Telegram rooms to serve you...FREE DOWNLOAD incl ph app
+
+The SkyHubLink Weather Information CO/UT/WY/NE is limited to outlooks for the region. It provides a quick-reference platform for viewing the current day's wx and, sometimes, a look at major weather ahead. It usually includes NWS updates throughout the day.
+
+Telegram CO Regional Wx Chat is open to ANY and ALL weather/climate discussion, general chat, photos, educational, and the like. Check-ins. It's a platform for sharing what you believe may be of interest to others. Occasionally, it may include graphics to supplement weather discussion on the SkyHubLink.
+
+Thanks to those of you who have added your callsign after your first name or handle on Telegram. To better facilitate comms, this is now a requirement for amateur operators in the SHL Wx Information and CO Reg Wx Chatrooms.
+
+Also, we plan to implement Ham.Live as the platform for relaying severe storm reports and photos when the CO Severe Wx Room is active. Ham.Live will be restricted to severe reports to Net Control in conjunction with radio reports in the CO Severe Wx Room. This will simplify things for the Severe Wx NC and speed the relay of reports to the NWS. More info on how to use it will be coming soon.
+
+The CO Reg Wx Chatroom on Telegram will continue as always, that is, unrestricted weather-related chat."""
+
+        self.sections.append(("Telegram Information", telegram_info))
+
+    # Section 7: Check-in Procedures
+        checkin_text = f"""WE'LL NOW TAKE OVER-THE-AIR CHECKINS FOR THE WEATHER OUTLOOK NET
+
+Please give your callsign twice and—if you use phonetics—use only Standard ITU Phonetics
+
+If possible, please use Netlogger or the CO Reg Wx Chat room on Telegram to check in. The more of you who can check in to this net using them, the better, since the 1-hour time allotment is precious.
+
+Download it for free at Netlogger.org. Click 'Select Net' at bottom left, find the SkyHubLink Wx Outlook Net and click. At upper left, click on the blue AIM tab, which opens that small window. If you're a regular, we'll recognize and log you. If you're somewhat new, just type "check me plz."
+
+First, as a courtesy, mobiles and portables. Mobile and portable stations come now with your callsign twice, please indicate which type you are.
+
+Analog FM Stations, Analog FM only, check in now.
+Callsign twice
+
+All Digital Stations, Digital only check in now,
+Callsign once (use YSF dashboard for callsign retrieval)
+
+Any Other Check-ins, Any mode, Any location for the Wx Outlook Net? Callsign twice
+
+Thanks for being here with us today!"""
 
         self.sections.append(("Check-ins", checkin_text))
 
@@ -2715,23 +4254,20 @@ Area Forecast Discussion for the Cheyenne forecast area:
 
         self.sections.append(("Cheyenne WFO", cheyenne_NWS_WFO))
 
-        # Section 5: Closing
-        closing = f"""CLOSING:
+    # Section 8: Closing
+        closing = f"""NET CLOSE
 
-Thank you to all stations who checked in today and provided weather reports.
+Many thanks to all of you for being here. The Severe Wx Network and the NWS appreciates your support and concern over threatening weather.
 
-The Colorado Severe Weather Outlook Net meets Monday through Friday
-at 1:00 PM Mountain Time.
+See SkyHubLink.com/Nets and click the Severe Wx Network tab for information on this program and its operations. If you aren't subscribed to the SHL mailing list, please do so to stay abreast of important announcements such as net changes, etc. Go to SkyHubLink.com/join. Your inbox won't be overloaded.
 
-For emergency weather information, please contact your local National
-Weather Service office or visit weather.gov.
+Thanks to the Skyhublink System for the use of its many repeaters and for the Severe Wx Hub 485322. Thanks also to the CO Digital Multiprotocol Group for Reflector xlx303a which is the location of the CO Severe Wx Room. Visit them at ColoradoDigital.net. Thanks to the many other rptr owners who link to the Severe Wx Room for public safety during severe storm outbreaks.
 
-This concludes today's Colorado Severe Weather Outlook Net.
+Thanks also to kd0sbn for WiresX 65045 in the CO Severe Rm, which is access for the NC2WX Skywarn repeater.
 
-This is {self.net_data.callsign}, {self.net_data.name}, Net Control,
-located in {self.net_data.location}, returning the frequency to normal use.
+For the Severe Weather Network, this is {self.net_data.name} closing the Weather Outlook Net. The systems are returned to open use. Have a great day! 73, {self.net_data.callsign} is clear.
 
-Thank you and 73."""
+In Netlogger, click "Close Net" and log the check-ins. Beginning with last check-in, right click on callsign, left click on "Log Contact"."""
 
         self.sections.append(("Closing", closing))
 
@@ -3314,6 +4850,7 @@ def main():
     app.setApplicationName(Config.APP_NAME)
     app.setApplicationVersion(Config.APP_VERSION)
     app.setOrganizationName(Config.ORGANIZATION)
+    logging.info("Application started")
 
     # Create and show main window
     window = SevereWeatherWindow()
