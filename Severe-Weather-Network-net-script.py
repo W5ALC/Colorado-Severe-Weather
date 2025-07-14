@@ -343,49 +343,235 @@ def get_lines_from_file(file_path: Path) -> List[str]:
         logging.error(f"Error reading file {file_path}: {e}")
     return []
 
-def get_current_mountain_time() -> Dict[str, str]:
-    """Get current Mountain Time with proper DST handling"""
-    now = datetime.now()
+import pytz
+from datetime import datetime
+from PyQt5.QtWidgets import QLabel
+from PyQt5.QtCore import QTimer, Qt
 
-    # Simple DST check (second Sunday in March to first Sunday in November)
-    # This is a basic implementation - for production use pytz or zoneinfo
-    year = now.year
-    dst_start = datetime(year, 3, 8)  # Approximate
-    dst_end = datetime(year, 11, 1)   # Approximate
+def get_current_mountain_time():
+    """Get current Mountain Time formatted with all needed keys"""
+    try:
+        mt = pytz.timezone('America/Denver')
+        now = datetime.now(mt)
+        return {
+            'full': now.strftime('%Y-%m-%d %H:%M:%S MST'),
+            'short': now.strftime('%H:%M'),
+            'date': now.strftime('%A, %B %d, %Y'),
+            'time': now.strftime('%H:%M:%S'),
+            'timezone': 'MST',
+            'day': now.strftime('%A'),  # Monday, Tuesday, etc.
+            'day_short': now.strftime('%a'),  # Mon, Tue, etc.
+            'weekday': now.weekday(),  # 0=Monday, 6=Sunday
+            'month': now.strftime('%B'),  # January, February, etc.
+            'month_short': now.strftime('%b'),  # Jan, Feb, etc.
+            'year': now.strftime('%Y'),
+            'hour': now.strftime('%H'),
+            'minute': now.strftime('%M'),
+            'second': now.strftime('%S')
+        }
+    except Exception as e:
+        # Fallback if pytz isn't available or there's an error
+        now = datetime.now()
+        return {
+            'full': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'short': now.strftime('%H:%M'),
+            'date': now.strftime('%A, %B %d, %Y'),
+            'time': now.strftime('%H:%M:%S'),
+            'timezone': 'Local',
+            'day': now.strftime('%A'),  # Monday, Tuesday, etc.
+            'day_short': now.strftime('%a'),  # Mon, Tue, etc.
+            'weekday': now.weekday(),  # 0=Monday, 6=Sunday
+            'month': now.strftime('%B'),  # January, February, etc.
+            'month_short': now.strftime('%b'),  # Jan, Feb, etc.
+            'year': now.strftime('%Y'),
+            'hour': now.strftime('%H'),
+            'minute': now.strftime('%M'),
+            'second': now.strftime('%S')
+        }
 
-    is_dst = dst_start <= now <= dst_end
+class TimeWidget(QLabel):
+    """Widget that displays current time and updates automatically"""
 
-    if is_dst:
-        tz = timezone(timedelta(hours=Config.MDT_OFFSET))
-        tz_name = "MDT"
-    else:
-        tz = timezone(timedelta(hours=Config.MST_OFFSET))
-        tz_name = "MST"
+    def __init__(self):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
+        super().__init__()
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 5px;
+            }
+        """)
 
-    mt_time = now.astimezone(tz)
+        # Set up timer to update every second
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_time)
+        self.timer.start(1000)  # Update every 1000ms (1 second)
 
-    return {
-        'time': mt_time.strftime("%I:%M %p"),
-        'timezone': tz_name,
-        'full': f"{mt_time.strftime('%I:%M %p')} {tz_name}",
-        'date': mt_time.strftime("%A, %B %d, %Y"),
-        'day': mt_time.strftime("%A"),
-        'datetime': mt_time
-    }
+        # Initial update
+        self.update_time()
+
+    def update_time(self):
+        """Update the displayed time"""
+        try:
+            time_info = get_current_mountain_time()
+            # Format: "2024-01-15 14:30:25 MST • Monday, January 15, 2024"
+            self.setText(f"{time_info['full']} • {time_info['date']}")
+        except Exception as e:
+            # Fallback display if there's an error
+            self.setText(f"Time update error: {str(e)}")
+
+    def get_current_time_info(self):
+        """Get current time info - useful for other parts of the application"""
+        return get_current_mountain_time()
 
 def is_net_day() -> bool:
     """Check if today is a net day"""
     return get_current_mountain_time()['day'] in Config.NET_DAYS
 
+class WeatherFetcherThread(QThread):
+    """Thread to fetch weather data without blocking the UI"""
+    data_ready = pyqtSignal(dict)
+    error_occurred = pyqtSignal(str)
+    progress_update = pyqtSignal(int)
+
+    def __init__(self, city_coords):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
+        super().__init__()
+        self.city_coords = city_coords
+
+    def run(self):
+        try:
+            etcher = NWSConditionsFetcher(self.city_coords)
+            total_cities = len(self.city_coords)
+            results = {}
+
+            for i, (city, (lat, lon)) in enumerate(self.city_coords.items()):
+                # Update progress
+                progress = int((i / total_cities) * 90)  # 90% max, save 10% for completion
+                self.progress_update.emit(progress)
+
+                # Fetch conditions for this city
+                conditions = fetcher.get_current_conditions(lat, lon)
+                results[city] = conditions
+
+                # Small delay to prevent API rate limiting
+                self.msleep(200)  # 200ms delay between requests
+
+            self.progress_update.emit(100)
+            self.data_ready.emit(results)
+
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+
+class NWSConditionsFetcher:
+
+    """Class to fetch current weather conditions from the NWS API."""
+
+    def __init__(self, city_coords: dict):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
+        """
+        city_coords: dict of city name to (lat, lon)
+        Example: { "Denver": (39.7392, -104.9903) }
+        """
+        self.city_coords = city_coords
+
+    def get_current_conditions(self, lat: float, lon: float) -> dict:
+        """Fetch current conditions for given lat/lon."""
+        try:
+            # Step 1: Get point metadata
+            points_url = f"https://api.weather.gov/points/{lat},{lon}"
+            headers = {
+                'User-Agent': 'WeatherApp/1.0 (contact@example.com)'  # NWS recommends this
+            }
+            points_resp = requests.get(points_url, headers=headers, timeout=10)
+            points_resp.raise_for_status()
+            points_data = points_resp.json()
+
+            # Step 2: Get observation stations
+            stations_url = points_data['properties']['observationStations']
+            stations_resp = requests.get(stations_url, headers=headers, timeout=10)
+            stations_resp.raise_for_status()
+            stations_data = stations_resp.json()
+
+            # Step 3: Pick first station (with validation)
+            if not stations_data.get('features'):
+                raise Exception("No observation stations found")
+
+            station_id = stations_data['features'][0]['properties']['stationIdentifier']
+
+            # Step 4: Get latest observation
+            obs_url = f"https://api.weather.gov/stations/{station_id}/observations/latest"
+            obs_resp = requests.get(obs_url, headers=headers, timeout=10)
+            obs_resp.raise_for_status()
+            obs_data = obs_resp.json()
+
+            # Step 5: Extract properties safely
+            props = obs_data.get('properties', {})
+            temp_c = props.get('temperature', {}).get('value') if props.get('temperature') else None
+            temp_f = temp_c * 9 / 5 + 32 if temp_c is not None else None
+            desc = props.get('textDescription', 'N/A')
+            wind_data = props.get('windSpeed', {})
+            wind = wind_data.get('value') if wind_data else None
+            humidity_data = props.get('relativeHumidity', {})
+            humidity = humidity_data.get('value') if humidity_data else None
+
+            return {
+                'description': desc,
+                'temperature_C': temp_c,
+                'temperature_F': temp_f,
+                'wind_mps': wind,
+                'humidity_pct': humidity,
+                'station': station_id,
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e)
+            }
+
+    def fetch_all_conditions(self) -> dict:
+        """Fetch current conditions for all cities in self.city_coords."""
+        results = {}
+        for city, (lat, lon) in self.city_coords.items():
+            conditions = self.get_current_conditions(lat, lon)
+            results[city] = conditions
+        return results
+
+def get_current_mountain_time():
+    """Get current Mountain Time formatted"""
+    try:
+        mt = pytz.timezone('America/Denver')
+        now = datetime.now(mt)
+        return {
+            'full': now.strftime('%Y-%m-%d %H:%M:%S MST'),
+            'short': now.strftime('%H:%M')
+        }
+    except:
+        # Fallback if pytz isn't available
+        now = datetime.now()
+        return {
+            'full': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'short': now.strftime('%H:%M')
+        }
+
 class AlertsDisplayDialog(QDialog):
     def __init__(self, parent, url, window_title, theme, font_size, auto_refresh_mins):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.url = url
         self.window_title = window_title
-        self.theme = theme
+        self.theme = themes[theme]
         self.font_size = font_size
         self.auto_refresh_mins = auto_refresh_mins
         self.entries = []
+        self.formatted_text = ""  # Store the formatted text for filtering
         self.last_update = ""
 
         self.setWindowTitle(window_title)
@@ -473,8 +659,8 @@ class AlertsDisplayDialog(QDialog):
                 padding: 5px;
             }}
             QPushButton:hover {{
-                background-color: {self.theme['button_active_bg']};
-                color: {self.theme['button_active_fg']};
+                background-color: {self.theme['button_hover']};
+                color: {self.theme['button_hover']};
             }}
             QLabel {{
                 color: {self.theme['accent']};
@@ -488,27 +674,141 @@ class AlertsDisplayDialog(QDialog):
 
     def load_alerts(self):
         self.status_label.setText("Loading alerts...")
-        self.fetcher = AlertsFetcher(self.url)
-        self.fetcher.alerts_ready.connect(self.on_alerts_ready)
-        self.fetcher.error_occurred.connect(self.on_error)
+        self.fetcher = AlertFetcher(self.url)
+        self.fetcher.alerts_loaded.connect(self.on_alerts_ready)
         self.fetcher.start()
 
     def on_alerts_ready(self, entries):
+        print("=== DEBUG on_alerts_ready ===")
+        print(f"Received entries type: {type(entries)}")
+
+        # Check if entries is already formatted text
+        if isinstance(entries, str):
+            # It's already formatted text, store it and display
+            self.formatted_text = entries
+            self.entries = []  # Clear XML entries since we have formatted text
+            self.last_update = time.strftime("%Y-%m-%d %H:%M:%S")
+            self.apply_filter()  # Apply any existing filter
+            return
+
+        # If it's not a string, process as XML elements (original logic)
         self.entries = entries
+        self.formatted_text = ""  # Clear formatted text since we have XML
         self.last_update = time.strftime("%Y-%m-%d %H:%M:%S")
         self.apply_filter()
 
     def on_error(self, error):
         self.entries = []
+        self.formatted_text = ""
         self.last_update = ""
         self.text_area.setPlainText(f"Error fetching alerts: {error}")
         self.status_label.setText("Error loading alerts")
 
     def apply_filter(self):
-        term = self.search_edit.text().lower()
+        term = self.search_edit.text().lower().strip()
+
+        # If we have formatted text (string), filter it
+        if self.formatted_text:
+            if not term:
+                # No filter term, show all text
+                self.text_area.setPlainText(self.formatted_text)
+                self.text_area.update()  # Force GUI update
+            else:
+                # Debug: Print what we're searching for
+                print(f"DEBUG: Searching for term: '{term}'")
+                print(f"DEBUG: First 200 chars of formatted_text: {self.formatted_text[:200]}...")
+
+                # Check if the text has section headers (=== format)
+                if '===' in self.formatted_text:
+                    # Split into sections by the === markers
+                    sections = []
+                    current_section = []
+
+                    for line in self.formatted_text.split('\n'):
+                        if line.startswith('=== ') and line.endswith(' ==='):
+                            # Save previous section if it exists
+                            if current_section:
+                                sections.append('\n'.join(current_section))
+                            # Start new section
+                            current_section = [line]
+                        else:
+                            current_section.append(line)
+
+                    # Don't forget the last section
+                    if current_section:
+                        sections.append('\n'.join(current_section))
+
+                    # Filter sections that contain the search term
+                    matching_sections = []
+                    for section in sections:
+                        if term in section.lower():
+                            matching_sections.append(section)
+                            print(f"DEBUG: Found match in section starting with: {section.split(chr(10))[0]}")
+
+                    result_text = '\n\n'.join(matching_sections)
+                else:
+                    # No section headers, filter by lines or paragraphs
+                    lines = self.formatted_text.split('\n')
+                    matching_lines = []
+
+                    # Group lines into alerts (between emoji lines)
+                    current_alert = []
+                    alerts = []
+
+                    for line in lines:
+                        if line.startswith('🚨 '):  # Start of new alert
+                            if current_alert:
+                                alerts.append('\n'.join(current_alert))
+                            current_alert = [line]
+                        else:
+                            current_alert.append(line)
+
+                    # Don't forget the last alert
+                    if current_alert:
+                        alerts.append('\n'.join(current_alert))
+
+                    # Filter alerts that contain the search term
+                    matching_alerts = []
+                    for alert in alerts:
+                        if term in alert.lower():
+                            matching_alerts.append(alert)
+                            print(f"DEBUG: Found match in alert starting with: {alert.split(chr(10))[0]}")
+
+                    result_text = '\n\n'.join(matching_alerts)
+
+                # Force clear the text area first
+                self.text_area.clear()
+                self.text_area.update()
+
+                if result_text:
+                    self.text_area.setPlainText(result_text)
+                    print(f"DEBUG: Setting text area with {len(result_text)} chars")
+                else:
+                    self.text_area.setPlainText("No matching alerts found.")
+                    print(f"DEBUG: No matches found, showing 'No matching alerts found.'")
+
+                # Force GUI update
+                self.text_area.update()
+                self.text_area.repaint()
+
+                print(f"DEBUG: Final result length: {len(result_text)} chars")
+
+            self.status_label.setText(f"Alerts loaded. Last update: {self.last_update}")
+            return
+
+        # Original XML processing logic
+        if not self.entries:
+            self.text_area.setPlainText("No alerts to display")
+            self.status_label.setText(f"No alerts. Last update: {self.last_update}")
+            return
+
         grouped_alerts = {}
 
         for entry in self.entries:
+            # Skip if entry is not an XML element
+            if not hasattr(entry, 'find'):
+                continue
+
             title_elem = entry.find("{http://www.w3.org/2005/Atom}title")
             summary_elem = entry.find("{http://www.w3.org/2005/Atom}summary")
             link_elem = entry.find("{http://www.w3.org/2005/Atom}link")
@@ -518,12 +818,10 @@ class AlertsDisplayDialog(QDialog):
                 title = title_elem.text
                 summary = summary_elem.text
                 link = link_elem.attrib.get("href") if link_elem is not None else ""
-
                 if area_elem is not None and area_elem.text:
                     counties = [c.strip() for c in area_elem.text.split(';')]
                 else:
                     counties = ["Active NWS Alerts"]
-
                 if term in title.lower() or term in summary.lower():
                     for county in counties:
                         if county not in grouped_alerts:
@@ -558,6 +856,8 @@ class AlertsDisplayDialog(QDialog):
 
 class TextPopup(QDialog):
     def __init__(self, parent, url, title, typ, theme, font_size, parse_pre=False):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle(f"{typ} Viewer - {title}")
         self.setMinimumSize(1000, 700)
@@ -656,6 +956,8 @@ class TextPopup(QDialog):
 
 class ImagePopup(QDialog):
     def __init__(self, parent, url, theme, font_size):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle("🛰️ GOES Satellite Snapshot")
         self.setMinimumSize(1200, 800)
@@ -718,6 +1020,8 @@ class ImagePopup(QDialog):
 
 class SpotterImagePopup(QDialog):
     def __init__(self, parent, url, theme, font_size):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle("📋 Skywarn Spotter Checklist")
 
@@ -810,6 +1114,8 @@ class SpotterImagePopup(QDialog):
 
 class WebViewPopup(QDialog):
     def __init__(self, parent, url, title, theme, font_size):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle(f"🌐 {title}")
         self.setMinimumSize(1200, 800)
@@ -904,6 +1210,8 @@ class AlertFetcher(QThread):
     progress_updated = pyqtSignal(int)
 
     def __init__(self, url, parse_atom=True, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.url = url
         self.parse_atom = parse_atom
@@ -944,18 +1252,12 @@ class AlertFetcher(QThread):
         self.alerts_loaded.emit(text)
 
 class WeatherToolkitWidget(QWidget):
-    """
-    A reusable weather toolkit widget that can be embedded into other applications.
 
-    Usage:
-        widget = WeatherToolkitWidget()
-        widget.set_resources(your_resources_dict)
-        widget.set_theme(your_theme_dict)
-        layout.addWidget(widget)
-    """
     window_title = "Active Colorado Alerts"
 
     def __init__(self, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.resources = resources  # Default placeholder
         self.theme = themes["default"]  # Default theme
@@ -1035,6 +1337,146 @@ class WeatherToolkitWidget(QWidget):
         # Initialize section buttons
         self.section_buttons = {}
         self.create_section_buttons()
+
+    def refresh_weather_data(self):
+        """Refresh weather data using NWS API"""
+        self.status_bar.show_message("Refreshing weather data...", progress=True)
+        self.status_bar.set_progress(0)
+
+        # Define Colorado city coordinates
+        city_coords = {
+            "Denver": (39.7392, -104.9903),
+            "Aurora": (39.7294, -104.8319),
+            "Lakewood": (39.7047, -105.0814),
+            "Colorado Springs": (38.8339, -104.8214),
+            "Pueblo": (38.2544, -104.6091),
+            "Fountain": (38.6822, -104.7008),
+            "Grand Junction": (39.0639, -108.5506),
+            "Montrose": (38.4783, -107.8762),
+            "Rifle": (39.5347, -107.7837),
+            "Sterling": (40.6255, -103.2077),
+            "Fort Morgan": (40.2506, -103.7994),
+            "Yuma": (40.1211, -102.7258),
+            "Fort Collins": (40.5853, -105.0844),
+            "Greeley": (40.4233, -104.7091),
+            "Loveland": (40.3978, -105.0749),
+        }
+
+        # Start the weather fetcher thread
+        self.weather_thread = WeatherFetcherThread(city_coords)
+        self.weather_thread.data_ready.connect(self.on_weather_data_ready)
+        self.weather_thread.error_occurred.connect(self.on_weather_error)
+        self.weather_thread.progress_update.connect(self.on_weather_progress)
+        self.weather_thread.start()
+
+    def on_weather_progress(self, progress_value):
+        """Update progress bar during weather fetch"""
+        self.status_bar.set_progress(progress_value)
+
+    def on_weather_data_ready(self, all_conditions):
+        """Handle weather data when it's ready"""
+        self.status_bar.set_progress(100)
+        self.status_bar.show_message("Weather data updated")
+
+        # Format the weather data for display
+        weather_text = self.format_weather_data(all_conditions)
+        weather_text += f"\n\nLast updated: {get_current_mountain_time()['full']}"
+
+        self.conditions_display.setPlainText(weather_text)
+
+        # Clear the progress after a short delay
+        QTimer.singleShot(2000, lambda: self.status_bar.set_progress(0))
+
+    def on_weather_error(self, error_message):
+        """Handle weather fetch errors"""
+        self.status_bar.set_progress(0)
+        self.status_bar.show_message(f"Error fetching weather: {error_message}")
+
+        # Show fallback data with error message
+        fallback_text = f"Unable to fetch live weather data: {error_message}\n\n"
+        fallback_text += """FALLBACK WEATHER INFORMATION:
+    For current conditions, please visit:
+    • Denver area: weather.gov/bou
+    • Colorado Springs: weather.gov/pub
+    • Grand Junction: weather.gov/gjt
+    • Fort Collins: weather.gov/bou
+
+    Or call your local NWS office for current conditions."""
+
+        fallback_text += f"\n\nLast attempt: {get_current_mountain_time()['full']}"
+        self.conditions_display.setPlainText(fallback_text)
+
+    def format_weather_data(self, all_conditions):
+        """Format weather conditions for display"""
+        weather_lines = ["CURRENT WEATHER CONDITIONS (Live NWS Data):"]
+
+        # Sort cities for consistent display
+        sorted_cities = sorted(all_conditions.keys())
+
+        for city in sorted_cities:
+            conditions = all_conditions[city]
+
+            if 'error' in conditions:
+                weather_lines.append(f"{city}: Data unavailable - {conditions['error']}")
+            else:
+                # Format temperature
+                temp_f = conditions.get('temperature_F')
+                if temp_f is not None:
+                    temp_str = f"{temp_f:.0f}°F"
+                else:
+                    temp_str = "N/A"
+
+                # Format description
+                desc = conditions.get('description', 'N/A')
+                if desc == 'N/A' or desc is None:
+                    desc = "Conditions unknown"
+
+                # Format wind
+                wind_mps = conditions.get('wind_mps')
+                if wind_mps is not None:
+                    # Convert m/s to mph for display
+                    wind_mph = wind_mps * 2.237
+                    if wind_mph < 1:
+                        wind_str = "Calm"
+                    else:
+                        wind_str = f"Wind: {wind_mph:.0f} mph"
+                else:
+                    wind_str = "Wind: N/A"
+
+                # Format humidity
+                humidity = conditions.get('humidity_pct')
+                if humidity is not None:
+                    humidity_str = f"Humidity: {humidity:.0f}%"
+                else:
+                    humidity_str = "Humidity: N/A"
+
+                # Format the line
+                weather_lines.append(
+                    f"{city}: {desc}, {temp_str}, {wind_str}, {humidity_str}"
+                )
+
+        # Add general advisories
+        weather_lines.append("")
+        weather_lines.append("For detailed forecasts and warnings, visit weather.gov")
+        weather_lines.append("Data provided by National Weather Service")
+
+        return "\n".join(weather_lines)
+
+    def load_initial_weather_data(self):
+        """Load weather data when the application starts"""
+        # Set initial placeholder text
+        initial_text = """Loading weather data...
+
+This may take a moment as we fetch current conditions
+from the National Weather Service API.
+
+If this is taking too long, you can click the refresh button
+to try again."""
+
+        self.conditions_display.setPlainText(initial_text)
+
+    # Start loading weather data after a short delay
+        QTimer.singleShot(1000, self.refresh_weather_data)
 
     def create_section_buttons(self):
         """Create buttons for each resource section"""
@@ -1203,9 +1645,11 @@ class WeatherToolkitWidget(QWidget):
     #     print("Refreshing alerts...")
 
     def fetch_colorado_alerts(self):
+        """Fetch and display Colorado NWS alerts"""
         url = "https://alerts.weather.gov/cap/co.php?x=0"
-        self._fetch_alerts(url, "Active Colorado Alerts")
-        window_title = "Active Colorado Alerts"
+        dialog = AlertsDisplayDialog(self, url, "Colorado NWS Alerts", self.theme, self.font_size, self.auto_refresh_mins)
+        dialog.exec()
+
 
     def fetch_area_alerts(self):
         url = "https://www.weather.gov/wwamap/wwatxtget.php?cwa=pub&wwa=all"
@@ -1708,31 +2152,12 @@ class NetData:
             if hasattr(self, key):
                 setattr(self, key, value)
 
-class TimeWidget(QLabel):
-    """Real-time clock widget"""
-    def __init__(self):
-        super().__init__()
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
-
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_time)
-        self.timer.start(1000)  # Update every second
-        self.update_time()
-
-    def update_time(self):
-        time_info = get_current_mountain_time()
-        self.setText(f"{time_info['full']} • {time_info['date']}")
-
-        # Change color if it's net time
-        if time_info['datetime'].strftime("%H:%M") == Config.NET_TIME and is_net_day():
-            self.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c; background-color: #fff3cd;")
-        else:
-            self.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
 
 class AnimatedButton(QPushButton):
     """Custom button with hover animations"""
     def __init__(self, text, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(text, parent)
         self.setMinimumHeight(40)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1748,6 +2173,8 @@ class AnimatedButton(QPushButton):
 class StatusBar(QFrame):
     """Enhanced status bar with icons and animations"""
     def __init__(self):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__()
         self.setFrameStyle(QFrame.Shape.StyledPanel)
         self.setMaximumHeight(35)
@@ -1803,6 +2230,8 @@ class StatusBar(QFrame):
 class WeatherDialog(QDialog):
     """Dialog for managing weather announcements"""
     def __init__(self, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle("Weather Announcement Manager")
         self.setMinimumSize(600, 400)
@@ -2173,6 +2602,8 @@ class ModernButton(QPushButton):
 
 class ModernGroupBox(QGroupBox):
     def __init__(self, title, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(title, parent)
 
     def apply_style(self, theme):
@@ -2201,6 +2632,8 @@ class AlertFetcher(QThread):
     progress_updated = pyqtSignal(int)
 
     def __init__(self, url, parse_atom=True, parent=None):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.url = url
         self.parse_atom = parse_atom
@@ -2234,6 +2667,7 @@ class AlertFetcher(QThread):
         self.alerts_loaded.emit(text)
 
 class SevereWeatherWindow(QWidget):
+
     """Main application window with enhanced features"""
     APP_NAME = "Colorado Severe Weather Outlook Net Controller"
     config = {
@@ -2247,6 +2681,8 @@ class SevereWeatherWindow(QWidget):
     }
 
     def __init__(self):
+        if QApplication.instance() is None:
+            raise RuntimeError("QApplication not created yet!")
         super().__init__()
         self.setWindowTitle(Config.APP_NAME)
         self.setMinimumSize(1200, 800)
@@ -2312,6 +2748,63 @@ class SevereWeatherWindow(QWidget):
         # Keyboard shortcuts
         self.setup_shortcuts()
 
+    def apply_theme(self):
+        """Apply the current theme to the application"""
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {self.theme['bg']};
+                color: {self.theme['fg']};
+            }}
+            QWidget {{
+                background-color: {self.theme['bg']};
+                color: {self.theme['fg']};
+            }}
+            QPushButton {{
+                background-color: {self.theme['button_bg']};
+                color: {self.theme['button_fg']};
+                border: 1px solid {self.theme['accent']};
+                padding: 8px;
+                margin: 2px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.theme['button_active_bg']};
+                color: {self.theme['button_active_fg']};
+            }}
+            QGroupBox {{
+                font-weight: bold;
+                color: {self.theme['section_fg']};
+                border: 2px solid {self.theme['accent']};
+                border-radius: 5px;
+                margin: 10px 0px;
+                padding-top: 10px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 0 5px;
+            }}
+            QStatusBar {{
+                background-color: {self.theme['status_bg']};
+                color: {self.theme['status_fg']};
+            }}
+            QMenuBar {{
+                background-color: {self.theme['button_bg']};
+                color: {self.theme['button_fg']};
+            }}
+            QMenuBar::item:selected {{
+                background-color: {self.theme['button_active_bg']};
+            }}
+            QMenu {{
+                background-color: {self.theme['button_bg']};
+                color: {self.theme['button_fg']};
+                border: 1px solid {self.theme['accent']};
+            }}
+            QMenu::item:selected {{
+                background-color: {self.theme['button_active_bg']};
+            }}
+        """)
+
+
     def create_top_buttons(self, layout):
         button_layout = QHBoxLayout()
 
@@ -2334,6 +2827,11 @@ class SevereWeatherWindow(QWidget):
 
         layout.addLayout(button_layout)
 
+    def fetch_colorado_alerts(self):
+        """Fetch and display Colorado NWS alerts"""
+        url = "https://alerts.weather.gov/cap/co.php?x=0"
+        dialog = AlertsDisplayDialog(self, url, "Colorado NWS Alerts", self.config['theme'], self.config['font_size'], self.config['auto_refresh_mins'])
+        dialog.exec()
 
     def create_header(self):
         """Create the application header with real-time clock"""
@@ -2874,7 +3372,7 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         # Quick alerts button
         alerts_btn = ModernButton("🚨 Colorado Active Alerts")
         window_title = "Active Colorado Alerts"
-        alerts_btn.clicked.connect(lambda checked, url="https://alerts.weather.gov/cap/co.php?x=0": self._fetch_alerts(url, window_title))
+        alerts_btn.clicked.connect(lambda checked, url="https://alerts.weather.gov/cap/co.php?x=0": self.fetch_colorado_alerts())
         left_layout.addWidget(alerts_btn)
         left_layout.addStretch()
         left_panel.setMaximumWidth(350)
@@ -4221,6 +4719,7 @@ def main():
     app.setApplicationName(Config.APP_NAME)
     app.setApplicationVersion(Config.APP_VERSION)
     app.setOrganizationName(Config.ORGANIZATION)
+    logging.info("Application started")
 
     # Create and show main window
     window = SevereWeatherWindow()
