@@ -74,12 +74,12 @@ class Config:
     APP_TITLE = "Colorado Severe Weather Network Toolkit"
     APP_AUTHOR = "W5ALC"
     AUTHOR_EMAIL = "Jon.W5ALC@gmail.com"
-    APP_VERSION = "2.1 Enhanced"
+    APP_VERSION = "2.4.0 Enhanced"
 
     DEFAULT_CONFIG = {
         "theme": "dark",
         "font_size": 12,
-        "auto_refresh_mins": 5,
+        "auto_refresh_mins": 2,
         "window_geometry": "1400x1000+50+50",
         "default_section": "",
         "compact_mode": False,
@@ -91,8 +91,8 @@ class Config:
     DEFAULT_CALLSIGN = os.environ.get('NET_CONTROL_CALLSIGN', 'NC2WX')
     DEFAULT_NAME = os.environ.get('NET_CONTROL_NAME', 'Gary')
     DEFAULT_LOCATION = os.environ.get('NET_CONTROL_LOCATION', 'Pueblo West in Southestern Colorado')
-    DEFAULT_LOGGER = os.environ.get('LOGGER_CALLSIGN', 'N0CALL')
-    DEFAULT_LOGGER_NAME = os.environ.get('LOGGER_NAME', 'LOGGER')
+    DEFAULT_LOGGER = os.environ.get('LOGGER_CALLSIGN', 'W7JPJ')
+    DEFAULT_LOGGER_NAME = os.environ.get('LOGGER_NAME', 'John')
 
     # Time zones
     MST_OFFSET = -7  # Mountain Standard Time
@@ -346,10 +346,26 @@ def get_lines_from_file(file_path: Path) -> List[str]:
 
 
 def get_current_mountain_time():
-    """Get current Mountain Time formatted with all needed keys"""
     try:
+        now = datetime.now()
+        year = now.year
+        dst_start = datetime(year, 3, 8)  # Approximate
+        dst_end = datetime(year, 11, 1)   # Approximate
+
+        is_dst = dst_start <= now <= dst_end
+
+        if is_dst:
+            tz = timezone(timedelta(hours=Config.MDT_OFFSET))
+            tz_name = "MDT"
+        else:
+            tz = timezone(timedelta(hours=Config.MST_OFFSET))
+            tz_name = "MST"
+
+        mt_time = now.astimezone(tz)
+
         mt = pytz.timezone('America/Denver')
         now = datetime.now(mt)
+
         return {
             'full': now.strftime('%Y-%m-%d %H:%M:%S MST'),
             'short': now.strftime('%H:%M'),
@@ -364,8 +380,11 @@ def get_current_mountain_time():
             'year': now.strftime('%Y'),
             'hour': now.strftime('%H'),
             'minute': now.strftime('%M'),
-            'second': now.strftime('%S')
+            'second': now.strftime('%S'),
+            'datetime': mt_time
+
         }
+
     except Exception as e:
         # Fallback if pytz isn't available or there's an error
         now = datetime.now()
@@ -387,11 +406,7 @@ def get_current_mountain_time():
         }
 
 class TimeWidget(QLabel):
-    """Widget that displays current time and updates automatically"""
-
     def __init__(self):
-        if QApplication.instance() is None:
-            raise RuntimeError("QApplication not created yet!")
         super().__init__()
 #        self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("""
@@ -402,8 +417,6 @@ class TimeWidget(QLabel):
                 padding: 5px;
             }
         """)
-
-        # Set up timer to update every second
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_time)
         self.timer.start(1000)  # Update every 1000ms (1 second)
@@ -436,8 +449,6 @@ class WeatherFetcherThread(QThread):
     progress_update = pyqtSignal(int)
 
     def __init__(self, city_coords):
-        if QApplication.instance() is None:
-            raise RuntimeError("QApplication not created yet!")
         super().__init__()
         self.city_coords = city_coords
 
@@ -466,16 +477,7 @@ class WeatherFetcherThread(QThread):
             self.error_occurred.emit(str(e))
 
 class NWSConditionsFetcher:
-
-    """Class to fetch current weather conditions from the NWS API."""
-
     def __init__(self, city_coords: dict):
-        if QApplication.instance() is None:
-            raise RuntimeError("QApplication not created yet!")
-        """
-        city_coords: dict of city name to (lat, lon)
-        Example: { "Denver": (39.7392, -104.9903) }
-        """
         self.city_coords = city_coords
 
     def get_current_conditions(self, lat: float, lon: float) -> dict:
@@ -540,23 +542,6 @@ class NWSConditionsFetcher:
             results[city] = conditions
         return results
 
-# def get_current_mountain_time():
-#     """Get current Mountain Time formatted"""
-#     try:
-#         mt = pytz.timezone('America/Denver')
-#         now = datetime.now(mt)
-#         return {
-#             'full': now.strftime('%Y-%m-%d %H:%M:%S MST'),
-#             'short': now.strftime('%H:%M')
-#         }
-#     except:
-#         # Fallback if pytz isn't available
-#         now = datetime.now()
-#         return {
-#             'full': now.strftime('%Y-%m-%d %H:%M:%S'),
-#             'short': now.strftime('%H:%M')
-#         }
-
 class AlertsDisplayDialog(QDialog):
     def __init__(self, parent, url, window_title, theme, font_size, auto_refresh_mins):
         super().__init__(parent)
@@ -566,7 +551,7 @@ class AlertsDisplayDialog(QDialog):
         self.font_size = font_size
         self.auto_refresh_mins = auto_refresh_mins
         self.entries = []
-        self.formatted_text = ""  # Store the formatted text for filtering
+        self.formatted_text = ""
         self.last_update = ""
 
         self.setWindowTitle(window_title)
@@ -674,19 +659,13 @@ class AlertsDisplayDialog(QDialog):
         self.fetcher.start()
 
     def on_alerts_ready(self, entries):
-        print("=== DEBUG on_alerts_ready ===")
-        print(f"Received entries type: {type(entries)}")
-
-        # Check if entries is already formatted text
         if isinstance(entries, str):
-            # It's already formatted text, store it and display
             self.formatted_text = entries
             self.entries = []  # Clear XML entries since we have formatted text
             self.last_update = time.strftime("%Y-%m-%d %H:%M:%S")
             self.apply_filter()  # Apply any existing filter
             return
 
-        # If it's not a string, process as XML elements (original logic)
         self.entries = entries
         self.formatted_text = ""  # Clear formatted text since we have XML
         self.last_update = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -702,18 +681,12 @@ class AlertsDisplayDialog(QDialog):
     def apply_filter(self):
         term = self.search_edit.text().lower().strip()
 
-        # If we have formatted text (string), filter it
         if self.formatted_text:
             if not term:
                 # No filter term, show all text
                 self.text_area.setPlainText(self.formatted_text)
                 self.text_area.update()  # Force GUI update
             else:
-                # Debug: Print what we're searching for
-                print(f"DEBUG: Searching for term: '{term}'")
-                print(f"DEBUG: First 200 chars of formatted_text: {self.formatted_text[:200]}...")
-
-                # Check if the text has section headers (=== format)
                 if '===' in self.formatted_text:
                     # Split into sections by the === markers
                     sections = []
@@ -738,7 +711,6 @@ class AlertsDisplayDialog(QDialog):
                     for section in sections:
                         if term in section.lower():
                             matching_sections.append(section)
-                            print(f"DEBUG: Found match in section starting with: {section.split(chr(10))[0]}")
 
                     result_text = '\n\n'.join(matching_sections)
                 else:
@@ -767,8 +739,6 @@ class AlertsDisplayDialog(QDialog):
                     for alert in alerts:
                         if term in alert.lower():
                             matching_alerts.append(alert)
-                            print(f"DEBUG: Found match in alert starting with: {alert.split(chr(10))[0]}")
-
                     result_text = '\n\n'.join(matching_alerts)
 
                 # Force clear the text area first
@@ -777,16 +747,10 @@ class AlertsDisplayDialog(QDialog):
 
                 if result_text:
                     self.text_area.setPlainText(result_text)
-                    print(f"DEBUG: Setting text area with {len(result_text)} chars")
                 else:
                     self.text_area.setPlainText("No matching alerts found.")
-                    print(f"DEBUG: No matches found, showing 'No matching alerts found.'")
-
-                # Force GUI update
                 self.text_area.update()
                 self.text_area.repaint()
-
-                print(f"DEBUG: Final result length: {len(result_text)} chars")
 
             self.status_label.setText(f"Alerts loaded. Last update: {self.last_update}")
             return
@@ -1011,20 +975,12 @@ class ImagePopup(QDialog):
             log_error(f"Image load error: {e}")
             self.status.setText("❌ Failed to load satellite image")
 
-
-
 class SpotterImagePopup(QDialog):
     def __init__(self, parent, url, theme, font_size):
-        if QApplication.instance() is None:
-            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle("📋 Skywarn Spotter Checklist")
 
-        # Don't set a fixed minimum size - let it size to content
-        # self.setMinimumSize(800, 1200)  # Remove this line
-
         QTimer.singleShot(50, lambda: self.move(50, 50))
-
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -1090,8 +1046,6 @@ class SpotterImagePopup(QDialog):
             # Set the pixmap at original size (no scaling)
             self.img_label.setPixmap(pix)
 
-            # Resize the dialog to fit the image plus some padding for UI elements
-            # But limit it to reasonable screen dimensions
             max_width = 1000   # Adjust as needed
             max_height = 800   # Adjust as needed
 
@@ -1205,14 +1159,11 @@ class AlertFetcher(QThread):
     progress_updated = pyqtSignal(int)
 
     def __init__(self, url, parse_atom=True, parent=None):
-        if QApplication.instance() is None:
-            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.url = url
         self.parse_atom = parse_atom
 
     def fetch_colorado_alerts(self):
-        """Fetch and display Colorado NWS alerts"""
         url = "https://alerts.weather.gov/cap/co.php?x=0"
         dialog = AlertsDisplayDialog(self, url, "Colorado NWS Alerts", self.theme, self.font_size, self.auto_refresh_mins)
         dialog.exec()
@@ -1248,11 +1199,7 @@ class AlertFetcher(QThread):
 
 class WeatherToolkitWidget(QWidget):
 
-#    window_title = "Active Colorado Alerts"
-
     def __init__(self, parent=None):
-        if QApplication.instance() is None:
-            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.resources = resources  # Default placeholder
         self.theme = themes["default"]  # Default theme
@@ -1333,145 +1280,41 @@ class WeatherToolkitWidget(QWidget):
         self.section_buttons = {}
         self.create_section_buttons()
 
-#     def refresh_weather_data(self):
-#         """Refresh weather data using NWS API"""
-#         self.status_bar.show_message("Refreshing weather data...", progress=True)
-#         self.status_bar.set_progress(0)
-#
-#         # Define Colorado city coordinates
-#         city_coords = {
-#             "Denver": (39.7392, -104.9903),
-#             "Aurora": (39.7294, -104.8319),
-#             "Lakewood": (39.7047, -105.0814),
-#             "Colorado Springs": (38.8339, -104.8214),
-#             "Pueblo": (38.2544, -104.6091),
-#             "Fountain": (38.6822, -104.7008),
-#             "Grand Junction": (39.0639, -108.5506),
-#             "Montrose": (38.4783, -107.8762),
-#             "Rifle": (39.5347, -107.7837),
-#             "Sterling": (40.6255, -103.2077),
-#             "Fort Morgan": (40.2506, -103.7994),
-#             "Yuma": (40.1211, -102.7258),
-#             "Fort Collins": (40.5853, -105.0844),
-#             "Greeley": (40.4233, -104.7091),
-#             "Loveland": (40.3978, -105.0749),
-#         }
-#
-#         # Start the weather fetcher thread
-#         self.weather_thread = WeatherFetcherThread(city_coords)
-#         self.weather_thread.data_ready.connect(self.on_weather_data_ready)
-#         self.weather_thread.error_occurred.connect(self.on_weather_error)
-#         self.weather_thread.progress_update.connect(self.on_weather_progress)
-#         self.weather_thread.start()
-#
-#     def on_weather_progress(self, progress_value):
-#         """Update progress bar during weather fetch"""
-#         self.status_bar.set_progress(progress_value)
-#
-#     def on_weather_data_ready(self, all_conditions):
-#         """Handle weather data when it's ready"""
-#         self.status_bar.set_progress(100)
-#         self.status_bar.show_message("Weather data updated")
-#
-#         # Format the weather data for display
-#         weather_text = self.format_weather_data(all_conditions)
-#         weather_text += f"\n\nLast updated: {get_current_mountain_time()['full']}"
-#
-#         self.conditions_display.setPlainText(weather_text)
-#
-#         # Clear the progress after a short delay
-#         QTimer.singleShot(2000, lambda: self.status_bar.set_progress(0))
-#
-#     def on_weather_error(self, error_message):
-#         """Handle weather fetch errors"""
-#         self.status_bar.set_progress(0)
-#         self.status_bar.show_message(f"Error fetching weather: {error_message}")
-#
-#         # Show fallback data with error message
-#         fallback_text = f"Unable to fetch live weather data: {error_message}\n\n"
-#         fallback_text += """FALLBACK WEATHER INFORMATION:
-#     For current conditions, please visit:
-#     • Denver area: weather.gov/bou
-#     • Colorado Springs: weather.gov/pub
-#     • Grand Junction: weather.gov/gjt
-#     • Fort Collins: weather.gov/bou
-#
-#     Or call your local NWS office for current conditions."""
-#
-#         fallback_text += f"\n\nLast attempt: {get_current_mountain_time()['full']}"
-#         self.conditions_display.setPlainText(fallback_text)
-#
-#     def format_weather_data(self, all_conditions):
-#         """Format weather conditions for display"""
-#         weather_lines = ["CURRENT WEATHER CONDITIONS (Live NWS Data):"]
-#
-#         # Sort cities for consistent display
-#         sorted_cities = sorted(all_conditions.keys())
-#
-#         for city in sorted_cities:
-#             conditions = all_conditions[city]
-#
-#             if 'error' in conditions:
-#                 weather_lines.append(f"{city}: Data unavailable - {conditions['error']}")
-#             else:
-#                 # Format temperature
-#                 temp_f = conditions.get('temperature_F')
-#                 if temp_f is not None:
-#                     temp_str = f"{temp_f:.0f}°F"
-#                 else:
-#                     temp_str = "N/A"
-#
-#                 # Format description
-#                 desc = conditions.get('description', 'N/A')
-#                 if desc == 'N/A' or desc is None:
-#                     desc = "Conditions unknown"
-#
-#                 # Format wind
-#                 wind_mps = conditions.get('wind_mps')
-#                 if wind_mps is not None:
-#                     # Convert m/s to mph for display
-#                     wind_mph = wind_mps * 2.237
-#                     if wind_mph < 1:
-#                         wind_str = "Calm"
-#                     else:
-#                         wind_str = f"Wind: {wind_mph:.0f} mph"
-#                 else:
-#                     wind_str = "Wind: N/A"
-#
-#                 # Format humidity
-#                 humidity = conditions.get('humidity_pct')
-#                 if humidity is not None:
-#                     humidity_str = f"Humidity: {humidity:.0f}%"
-#                 else:
-#                     humidity_str = "Humidity: N/A"
-#
-#                 # Format the line
-#                 weather_lines.append(
-#                     f"{city}: {desc}, {temp_str}, {wind_str}, {humidity_str}"
-#                 )
-#
-#         # Add general advisories
-#         weather_lines.append("")
-#         weather_lines.append("For detailed forecasts and warnings, visit weather.gov")
-#         weather_lines.append("Data provided by National Weather Service")
-#
-#         return "\n".join(weather_lines)
-#
-#     def load_initial_weather_data(self):
-#         """Load weather data when the application starts"""
-#         # Set initial placeholder text
-#         initial_text = """Loading weather data...
-#
-# This may take a moment as we fetch current conditions
-# from the National Weather Service API.
-#
-# If this is taking too long, you can click the refresh button
-# to try again."""
-#
-#         self.conditions_display.setPlainText(initial_text)
-#
-#     # Start loading weather data after a short delay
-#         QTimer.singleShot(1000, self.refresh_weather_data)
+    def refresh_weather_data(self):
+        """Refresh weather data using NWS API"""
+        self.status_bar.show_message("Refreshing weather data...", progress=True)
+        self.status_bar.set_progress(0)
+
+    def on_weather_error(self, error_message):
+        """Handle weather fetch errors"""
+        self.status_bar.set_progress(0)
+        self.status_bar.show_message(f"Error fetching weather: {error_message}")
+
+        # Show fallback data with error message
+        fallback_text = f"Unable to fetch live weather data: {error_message}\n\n"
+        fallback_text += """FALLBACK WEATHER INFORMATION:
+    For current conditions, please visit:
+    • Denver area: weather.gov/bou
+    • Colorado Springs: weather.gov/pub
+    • Grand Junction: weather.gov/gjt
+    • Fort Collins: weather.gov/bou
+
+    Or call your local NWS office for current conditions."""
+
+        fallback_text += f"\n\nLast attempt: {get_current_mountain_time()['full']}"
+        self.conditions_display.setPlainText(fallback_text)
+
+    def format_weather_data(self, all_conditions):
+        """Format weather conditions for display"""
+        weather_lines = ["CURRENT WEATHER CONDITIONS (Live NWS Data):"]
+        weather_lines.append("")
+        weather_lines.append("For detailed forecasts and warnings, visit weather.gov")
+        weather_lines.append("Data provided by National Weather Service")
+
+        return "\n".join(weather_lines)
+
+    def load_initial_weather_data(self):
+        QTimer.singleShot(1000, self.refresh_weather_data)
 
     def create_section_buttons(self):
         """Create buttons for each resource section"""
@@ -2168,8 +2011,6 @@ class AnimatedButton(QPushButton):
 class StatusBar(QFrame):
     """Enhanced status bar with icons and animations"""
     def __init__(self):
-        if QApplication.instance() is None:
-            raise RuntimeError("QApplication not created yet!")
         super().__init__()
         self.setFrameStyle(QFrame.Shape.StyledPanel)
         self.setMaximumHeight(35)
@@ -2225,8 +2066,6 @@ class StatusBar(QFrame):
 class WeatherDialog(QDialog):
     """Dialog for managing weather announcements"""
     def __init__(self, parent=None):
-        if QApplication.instance() is None:
-            raise RuntimeError("QApplication not created yet!")
         super().__init__(parent)
         self.setWindowTitle("Weather Announcement Manager")
         self.setMinimumSize(600, 400)
@@ -2567,6 +2406,506 @@ class NWSTextFetcher:
     def get_wfo_code(self, location_name: str) -> Optional[str]:
         return self.wfo_codes.get(location_name.lower())
 
+class RWRFetcher:
+    def __init__(self):
+        self.base_url = "https://forecast.weather.gov/product.php"
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Python RWR Fetcher - Educational Use'
+        })
+        self.html_formatter = RWRHTMLFormatter()
+
+    def fetch_rwr_from_pub(self) -> Optional[str]:
+        """Fetch Regional Weather Roundup from NWS Pueblo"""
+        try:
+            params = {
+                'site': 'PUB',
+                'issuedby': 'CO',
+                'product': 'RWR',
+                'format': 'txt',
+                'version': '1',
+                'glossary': '0'
+            }
+
+            response = self.session.get(self.base_url, params=params, timeout=10)
+            response.raise_for_status()
+
+            # Parse HTML to extract the RWR text content
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Look for the pre tag which contains the RWR text
+            pre_tag = soup.find('pre')
+            if pre_tag:
+                rwr_text = pre_tag.get_text().strip()
+
+                # Check if there's actually RWR content
+                if "None issued by this office recently" not in rwr_text:
+                    return rwr_text
+                else:
+                    return None
+
+            return None
+
+        except requests.RequestException as e:
+            print(f"Error fetching RWR from PUB: {e}")
+            return None
+
+    def get_rwr_html(self) -> str:
+        """Get RWR formatted as HTML"""
+        rwr_text = self.fetch_rwr_from_pub()
+        return self.html_formatter.format_rwr_to_html(rwr_text)
+
+    def get_rwr_with_fallback(self) -> str:
+        """Get RWR with fallback message if unavailable (plain text)"""
+        rwr_text = self.fetch_rwr_from_pub()
+
+        if rwr_text:
+            return rwr_text
+        else:
+            return """No Regional Weather Roundup currently issued by NWS Pueblo
+(RWR products are issued periodically during significant weather events)
+
+For current regional weather information, visit:
+https://forecast.weather.gov/product.php?site=PUB&issuedby=CO&product=RWR&format=txt&version=1&glossary=0"""
+
+class RWRHTMLFormatter:
+    def __init__(self):
+        self.css_styles = """
+        <style>
+            body {
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                color: #ffffff;
+                margin: 0;
+                padding: 20px;
+                line-height: 1.4;
+            }
+
+            .rwr-container {
+                max-width: 1200px;
+                margin: 0 auto;
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+                border-radius: 15px;
+                padding: 25px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            }
+
+            .rwr-header {
+                text-align: center;
+                margin-bottom: 30px;
+                padding: 20px;
+                background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+                border-radius: 10px;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            }
+
+            .rwr-title {
+                font-size: 24px;
+                font-weight: bold;
+                margin: 0;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            }
+
+            .rwr-subtitle {
+                font-size: 16px;
+                margin: 5px 0;
+                opacity: 0.9;
+            }
+
+            .rwr-timestamp {
+                font-size: 14px;
+                margin-top: 10px;
+                opacity: 0.8;
+            }
+
+            .region-section {
+                margin: 25px 0;
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 10px;
+                padding: 20px;
+                border-left: 4px solid #4ecdc4;
+            }
+
+            .region-title {
+                font-size: 18px;
+                font-weight: bold;
+                color: #4ecdc4;
+                margin-bottom: 15px;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+            }
+
+            .weather-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 10px;
+                background: rgba(0, 0, 0, 0.2);
+                border-radius: 8px;
+                overflow: hidden;
+            }
+
+            .weather-table th {
+                background: linear-gradient(45deg, #667eea, #764ba2);
+                color: white;
+                padding: 12px 8px;
+                text-align: left;
+                font-weight: bold;
+                font-size: 12px;
+                border-bottom: 2px solid #4ecdc4;
+            }
+
+            .weather-table td {
+                padding: 10px 8px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                font-size: 12px;
+            }
+
+            .weather-table tr:hover {
+                background: rgba(255, 255, 255, 0.1);
+                transition: background 0.3s ease;
+            }
+
+            .city-name {
+                font-weight: bold;
+                color: #ffd700;
+                min-width: 120px;
+            }
+
+            .temp-high {
+                color: #ff6b6b;
+                font-weight: bold;
+            }
+
+            .temp-low {
+                color: #4ecdc4;
+                font-weight: bold;
+            }
+
+            .conditions {
+                color: #a8e6cf;
+            }
+
+            .wind {
+                color: #ffd3a5;
+            }
+
+            .pressure {
+                color: #fd79a8;
+            }
+
+            .remarks {
+                color: #fdcb6e;
+                font-style: italic;
+            }
+
+            .not-available {
+                color: #ddd;
+                font-style: italic;
+                opacity: 0.6;
+            }
+
+            .footer-note {
+                margin-top: 30px;
+                padding: 15px;
+                background: rgba(0, 0, 0, 0.2);
+                border-radius: 8px;
+                text-align: center;
+                font-size: 12px;
+                opacity: 0.8;
+            }
+        </style>
+        """
+
+    def extract_timestamp_improved(self, rwr_text: str) -> str:
+        """Improved timestamp extraction with multiple fallback patterns"""
+
+        # Based on the actual format: 1100 AM MDT SUN JUL 20 2025
+        patterns = [
+            # Exact pattern for the format we see: time + timezone + day + month + date + year
+            r'(\d{3,4} [AP]M [A-Z]{3} [A-Z]{3} [A-Z]{3} \d{1,2} \d{4})',
+
+            # Alternative: Look for pattern after DENVER/BOULDER CO or PUEBLO CO
+            r'(?:DENVER/BOULDER CO|PUEBLO CO)\s+(.+?)\s+NOTE:',
+
+            # Fallback: any timestamp pattern in first part
+            r'(\d{3,4} [AP]M [A-Z]{3}.*?\d{4})',
+
+            # Another fallback: look for the specific format with word boundaries
+            r'(\b\d{3,4} [AP]M \w{3} \w{3} \w{3} \d{1,2} \d{4}\b)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, rwr_text, re.IGNORECASE)
+            if match:
+                timestamp = match.group(1).strip()
+
+                # Clean up the timestamp
+                timestamp = re.sub(r'\s+', ' ', timestamp)  # Normalize whitespace
+
+                # Validate it looks like a proper timestamp
+                if len(timestamp) > 15 and ('AM' in timestamp or 'PM' in timestamp):
+                    return timestamp
+
+        return "Time not available"
+
+    def format_rwr_to_html(self, rwr_text: str) -> str:
+        """Convert RWR text to styled HTML"""
+        if not rwr_text:
+            return self._create_error_html("No RWR data available")
+
+        # Use improved timestamp extraction
+        timestamp = self.extract_timestamp_improved(rwr_text)
+
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Colorado Weather Roundup</title>
+            {self.css_styles}
+        </head>
+        <body>
+            <div class="rwr-container">
+                <div class="rwr-header">
+                    <h1 class="rwr-title">🌤️ COLORADO WEATHER ROUNDUP</h1>
+                    <p class="rwr-subtitle">National Weather Service Pueblo CO</p>
+                    <p class="rwr-timestamp">{timestamp}</p>
+                </div>
+        """
+
+        # Rest of the method remains the same...
+        sections = self._parse_sections(rwr_text)
+
+        for section_title, section_data in sections.items():
+            html += f"""
+                <div class="region-section">
+                    <h2 class="region-title">{section_title}</h2>
+                    <table class="weather-table">
+                        <thead>
+                            <tr>
+                                <th>City</th>
+                                <th>Conditions</th>
+                                <th>Temp</th>
+                                <th>DP</th>
+                                <th>RH</th>
+                                <th>Wind</th>
+                                <th>Pressure</th>
+                                <th>Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+
+            for city_data in section_data:
+                html += self._format_city_row(city_data)
+
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+
+        html += """
+                <div class="footer-note">
+                    <p><strong>Note:</strong> "FAIR" indicates few or no clouds below 12,000 feet with no significant weather and/or obstructions to visibility.</p>
+                    <p>Data provided by National Weather Service</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        return html
+
+    def _parse_sections(self, rwr_text: str) -> dict:
+        """Parse RWR text into sections"""
+        sections = {}
+        current_section = None
+
+        lines = rwr_text.split('\n')
+
+        for line in lines:
+            line = line.strip()
+
+            # Check for section headers
+            if line.startswith('...') and line.endswith('...'):
+                current_section = line.strip('.')
+                sections[current_section] = []
+                continue
+
+            # Check for city data
+            if current_section and len(line) > 50 and not line.startswith('COZ'):
+                # Parse city data line
+                city_data = self._parse_city_line(line)
+                if city_data:
+                    sections[current_section].append(city_data)
+
+        return sections
+
+    def _parse_city_line(self, line: str) -> Optional[dict]:
+        """Parse a single city weather line using fixed-width column positions"""
+        # Skip header lines and empty lines
+        if len(line) < 40 or line.startswith('CITY') or line.strip() == '':
+            return None
+
+        # Fixed-width column positions based on the header:
+        # CITY           SKY/WX    TMP DP  RH WIND       PRES   REMARKS
+        # 0-14          15-24     25-28 29-32 33-35 36-45     46-52   53+
+
+        try:
+            city = line[0:15].strip()
+            conditions = line[15:25].strip()
+            temp = line[25:29].strip()
+            dp = line[29:33].strip()
+            rh = line[33:36].strip()
+            wind = line[36:46].strip()
+            pressure = line[46:53].strip()
+            remarks = line[53:].strip() if len(line) > 53 else ''
+
+            # Handle special cases
+            if not city:
+                return None
+
+            # Handle "NOT AVBL" case
+            if conditions == 'NOT AVBL' or 'NOT AVBL' in line:
+                return {
+                    'city': city,
+                    'conditions': 'NOT AVBL',
+                    'temp': 'N/A',
+                    'dp': 'N/A',
+                    'rh': 'N/A',
+                    'wind': 'N/A',
+                    'pressure': 'N/A',
+                    'remarks': ''
+                }
+
+            # Handle "N/A" values
+            if conditions == 'N/A':
+                # Parse the rest of the line differently for N/A entries
+                parts = line.split()
+                if len(parts) >= 6:
+                    city = parts[0]
+                    if len(parts) > 1 and parts[1] == 'N/A':
+                        # Find temp, dp, rh values
+                        try:
+                            temp = parts[2] if len(parts) > 2 else 'N/A'
+                            dp = parts[3] if len(parts) > 3 else 'N/A'
+                            rh = parts[4] if len(parts) > 4 else 'N/A'
+                            wind = parts[5] if len(parts) > 5 else 'N/A'
+                            pressure = parts[6] if len(parts) > 6 else 'N/A'
+                            remarks = ' '.join(parts[7:]) if len(parts) > 7 else ''
+                        except:
+                            temp = dp = rh = wind = pressure = remarks = 'N/A'
+
+                        return {
+                            'city': city,
+                            'conditions': 'N/A',
+                            'temp': temp,
+                            'dp': dp,
+                            'rh': rh,
+                            'wind': wind,
+                            'pressure': pressure,
+                            'remarks': remarks
+                        }
+
+            # Clean up empty values
+            if not conditions:
+                conditions = 'N/A'
+            if not temp or temp == 'N/A':
+                temp = 'N/A'
+            if not dp or dp == 'N/A':
+                dp = 'N/A'
+            if not rh or rh == 'N/A':
+                rh = 'N/A'
+            if not wind:
+                wind = 'N/A'
+            if not pressure:
+                pressure = 'N/A'
+
+            return {
+                'city': city,
+                'conditions': conditions,
+                'temp': temp,
+                'dp': dp,
+                'rh': rh,
+                'wind': wind,
+                'pressure': pressure,
+                'remarks': remarks
+            }
+
+        except Exception as e:
+            # Fallback parsing for malformed lines
+            parts = line.split()
+            if len(parts) < 2:
+                return None
+
+            city = parts[0]
+            if len(parts) == 2 and parts[1] == 'NOT AVBL':
+                return {
+                    'city': city,
+                    'conditions': 'NOT AVBL',
+                    'temp': 'N/A',
+                    'dp': 'N/A',
+                    'rh': 'N/A',
+                    'wind': 'N/A',
+                    'pressure': 'N/A',
+                    'remarks': ''
+                }
+
+            return None
+
+    def _format_city_row(self, city_data: dict) -> str:
+        """Format a single city row"""
+        city = city_data['city']
+        conditions = city_data['conditions']
+        temp = city_data['temp']
+        dp = city_data['dp']
+        rh = city_data['rh']
+        wind = city_data['wind']
+        pressure = city_data['pressure']
+        remarks = city_data['remarks']
+
+        # Apply styling classes
+        city_class = "city-name"
+        conditions_class = "conditions"
+        temp_class = "temp-high" if temp.isdigit() and int(temp) > 85 else "temp-low"
+        not_avbl_class = "not-available" if conditions == "NOT AVBL" else ""
+
+        return f"""
+            <tr class="{not_avbl_class}">
+                <td class="{city_class}">{city}</td>
+                <td class="{conditions_class}">{conditions}</td>
+                <td class="{temp_class}">{temp}</td>
+                <td>{dp}</td>
+                <td>{rh}%</td>
+                <td class="wind">{wind}</td>
+                <td class="pressure">{pressure}</td>
+                <td class="remarks">{remarks}</td>
+            </tr>
+        """
+
+    def _create_error_html(self, error_message: str) -> str:
+        """Create error HTML"""
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>RWR Error</title>
+            {self.css_styles}
+        </head>
+        <body>
+            <div class="rwr-container">
+                <div class="rwr-header">
+                    <h1 class="rwr-title">⚠️ RWR Error</h1>
+                    <p class="rwr-subtitle">{error_message}</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
 class ModernButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
@@ -2662,13 +3001,11 @@ class AlertFetcher(QThread):
         self.alerts_loaded.emit(text)
 
 class SevereWeatherWindow(QWidget):
-
-    """Main application window with enhanced features"""
     APP_NAME = "Colorado Severe Weather Outlook Net Controller"
     config = {
         "theme": "dark",
         "font_size": 12,
-        "auto_refresh_mins": 5,
+        "auto_refresh_mins": 2,
         "window_geometry": "1400x1000+50+50",
         "default_section": "",
         "compact_mode": False,
@@ -2726,8 +3063,8 @@ class SevereWeatherWindow(QWidget):
         # Initialize tabs
         self.init_setup_tab()
         self.init_script_tab()
-        self.init_weather_tab()
         self.init_toolkit_tab()
+        self.init_weather_tab()
         self.init_settings_tab()
 
         main_layout.addWidget(self.tab_widget)
@@ -2796,21 +3133,6 @@ class SevereWeatherWindow(QWidget):
                 background-color: {self.theme['button_active_bg']};
             }}
         """)
-
-
-    def create_top_buttons(self, layout):
-        button_layout = QHBoxLayout()
-
-        buttons = [
-            ("Colorado Alerts (Alt+C)", self.fetch_colorado_alerts, "Show current Colorado NWS alerts."),
-            ("US Alerts (Alt+U)", self.fetch_us_alerts, "Show all US NWS alerts."),
-            ("GOES Snapshot (Alt+G)", self.show_satellite_image, "Show latest GOES satellite image."),
-            ("Report Weather to NWS (Alt+A)", self.open_nws_report, "Send weather report directly to the NWS."),
-            ("Settings", self.open_settings, "Open application settings."),
-            ("Help (F1)", self.show_help, "Show help/documentation."),
-            ("Submit Resource", self.submit_resource, "Suggest a new resource for the program."),
-            ("Exit (Alt+Q)", self.close, "Exit the application."),
-        ]
 
         for text, callback, tooltip in buttons:
             btn = QPushButton(text)
@@ -3180,6 +3502,8 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         self.auto_advance_timer.timeout.connect(self.auto_advance_section)
 
     def init_weather_tab(self):
+        fetcher = NWSTextFetcher()
+        rwr_text = fetcher.fetch_text_product('PUB', 'RWR')
         """Initialize weather information tab"""
         self.weather_tab = QWidget()
         layout = QVBoxLayout()
@@ -3189,49 +3513,22 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         nws_group = QGroupBox("🏢 NWS Weather Forecast Offices Serving Colorado")
         nws_layout = QVBoxLayout()
 
-        # Create office cards
-        offices_layout = QGridLayout()
-        row = 0
-        col = 0
-    def init_weather_tab(self):
-        """Initialize weather information tab"""
-        self.weather_tab = QWidget()
-        layout = QVBoxLayout()
-        layout.setSpacing(15)
-
-        # NWS Office Information
-        nws_group = QGroupBox("🏢 NWS Weather Forecast Offices Serving Colorado")
-        nws_layout = QVBoxLayout()
-
-        # Create office cards
-        offices_layout = QGridLayout()
-        row = 0
-        col = 0
-
-        for office_name, office_data in NWS_OFFICES.items():
-            office_card = self.create_nws_office_card(office_name, office_data)
-            offices_layout.addWidget(office_card, row, col)
-            col += 1
-            if col > 2:  # 2 columns
-                col = 0
-                row += 1
-
-        nws_layout.addLayout(offices_layout)
-        nws_group.setLayout(nws_layout)
-
-        # Current conditions placeholder
         conditions_group = QGroupBox("🌤️ Current Weather Conditions")
         conditions_layout = QVBoxLayout()
+        initial_text = """Loading weather data...
 
+This may take a moment as we fetch current conditions
+from the National Weather Service API.
+
+If this is taking too long, you can click the refresh button
+to try again."""
         self.conditions_display = QTextEdit()
         self.conditions_display.setReadOnly(True)
-        self.conditions_display.setMaximumHeight(200)
-        self.conditions_display.setPlaceholderText(
-            "Weather conditions will be displayed here...\n\n"
-            "Note: This is a placeholder for weather data integration.\n"
-            "In a production environment, this would connect to NWS APIs\n"
-            "for real-time weather information."
-        )
+        self.conditions_display.setMinimumHeight(600)
+        self.conditions_display.setPlainText(initial_text)
+
+    # Start loading weather data after a short delay
+        QTimer.singleShot(1000, self.refresh_weather_data)
 
         refresh_weather_btn = AnimatedButton("🔄 Refresh Weather Data")
         refresh_weather_btn.clicked.connect(self.refresh_weather_data)
@@ -3240,222 +3537,12 @@ NWS Offices: Grand Junction (GJT), Denver/Boulder (BOU), Goodland (GLD),
         conditions_layout.addWidget(refresh_weather_btn)
         conditions_group.setLayout(conditions_layout)
 
-        # Announcements preview
-        announcements_group = QGroupBox("📢 Current Weather Announcements")
-        announcements_layout = QVBoxLayout()
-
-        self.announcements_display = QTextEdit()
-        self.announcements_display.setReadOnly(True)
-        self.announcements_display.setMaximumHeight(150)
-
-        edit_announcements_btn = AnimatedButton("✏️ Edit Announcements")
-        edit_announcements_btn.clicked.connect(self.manage_weather_announcements)
-
-        announcements_layout.addWidget(self.announcements_display)
-        announcements_layout.addWidget(edit_announcements_btn)
-        announcements_group.setLayout(announcements_layout)
-
-        layout.addWidget(nws_group)
         layout.addWidget(conditions_group)
-        layout.addWidget(announcements_group)
+        # layout.addWidget(announcements_group)
         layout.addStretch()
 
         self.weather_tab.setLayout(layout)
         self.tab_widget.addTab(self.weather_tab, "🌦️ Weather")
-
-        # Update announcements display
-        self.update_announcements_display()
-
-    def create_nws_office_card(self, name: str, data: Dict[str, str], theme: Dict[str, str]) -> QFrame:
-        """Create a card widget for NWS office information"""
-        card = QFrame()
-        card.setFrameStyle(QFrame.Shape.Box)
-        card.setStyleSheet(f"""
-            QFrame {{
-                border: 1px solid {theme['group_border']};
-                border-radius: 2px;
-                background-color: {theme['group_bg']};
-                color: {theme['fg']};
-                padding: 2px;
-            }}
-        """)
-        # Remove fixed heights to allow dynamic sizing
-        card.setMinimumHeight(80)  # Reduced minimum to allow more shrinking
-        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        # Main layout with better spacing
-        layout = QVBoxLayout()
-        layout.setSpacing(6)  # Slightly reduced for compact view
-        layout.setContentsMargins(8, 8, 8, 8)  # Reduced margins for smaller windows
-
-        # Office name and code - larger, more readable font
-        header = QLabel(f"{name} ({data['code']})")
-        header.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {theme['section_fg']};")
-        header.setWordWrap(True)  # Allow wrapping for long names
-        header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        header.setMinimumHeight(0)  # Allow it to shrink
-
-        # Coverage area - larger font
-        areas = QLabel(f"Areas: {data['areas']}")
-        areas.setWordWrap(True)
-        areas.setStyleSheet(f"color: {theme['fg_secondary']}; font-size: 12px;")
-        areas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        areas.setMinimumHeight(0)  # Allow it to shrink
-
-        # Contact info layout with better spacing
-        contact_layout = QHBoxLayout()
-        contact_layout.setSpacing(12)
-        contact_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins from nested layout
-
-        # Phone and web labels - larger, more readable fonts
-        phone_label = QLabel(f"📞 {data['phone']}")
-        phone_label.setStyleSheet(f"font-size: 11px; color: {theme['fg_secondary']};")
-        phone_label.setWordWrap(True)  # Allow wrapping
-        phone_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        phone_label.setMinimumHeight(0)
-
-        web_label = QLabel(f"🌐 {data['url'].replace('https://', '')}")
-        web_label.setStyleSheet(f"font-size: 11px; color: {theme['accent']};")
-        web_label.setWordWrap(True)  # Allow wrapping
-        web_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        web_label.setMinimumHeight(0)
-
-        # Add contact widgets to layout
-        contact_layout.addWidget(phone_label)
-        contact_layout.addWidget(web_label)
-
-        # Add all components to main layout
-        layout.addWidget(header)
-        layout.addWidget(areas)
-        layout.addLayout(contact_layout)
-        # Remove addStretch() to allow natural sizing instead of forcing extra space
-
-        card.setLayout(layout)
-        return card
-        for office_name, office_data in NWS_OFFICES.items():
-            office_card = self.create_nws_office_card(office_name, office_data, self.theme)
-            offices_layout.addWidget(office_card, row, col)
-            col += 1
-            if col > 2:  # 2 columns
-                col = 0
-                row += 1
-
-        nws_layout.addLayout(offices_layout)
-        nws_group.setLayout(nws_layout)
-
-        # Current conditions placeholder
-        conditions_group = QGroupBox("🌤️ Current Weather Conditions")
-        conditions_layout = QVBoxLayout()
-
-        self.conditions_display = QTextEdit()
-        self.conditions_display.setReadOnly(True)
-        self.conditions_display.setMaximumHeight(200)
-        self.conditions_display.setPlaceholderText(
-            "Weather conditions will be displayed here...\n\n"
-            "Note: This is a placeholder for weather data integration.\n"
-            "In a production environment, this would connect to NWS APIs\n"
-            "for real-time weather information."
-        )
-
-        refresh_weather_btn = AnimatedButton("🔄 Refresh Weather Data")
-        refresh_weather_btn.clicked.connect(self.refresh_weather_data)
-
-        conditions_layout.addWidget(self.conditions_display)
-        conditions_layout.addWidget(refresh_weather_btn)
-        conditions_group.setLayout(conditions_layout)
-
-        # Announcements preview
-        announcements_group = QGroupBox("📢 Current Weather Announcements")
-        announcements_layout = QVBoxLayout()
-
-        self.announcements_display = QTextEdit()
-        self.announcements_display.setReadOnly(True)
-        self.announcements_display.setMaximumHeight(150)
-
-        edit_announcements_btn = AnimatedButton("✏️ Edit Announcements")
-        edit_announcements_btn.clicked.connect(self.manage_weather_announcements)
-
-        announcements_layout.addWidget(self.announcements_display)
-        announcements_layout.addWidget(edit_announcements_btn)
-        announcements_group.setLayout(announcements_layout)
-
-        layout.addWidget(nws_group)
-        layout.addWidget(conditions_group)
-        layout.addWidget(announcements_group)
-        layout.addStretch()
-
-        self.weather_tab.setLayout(layout)
-        self.tab_widget.addTab(self.weather_tab, "🌦️ Weather")
-
-        # Update announcements display
-        self.update_announcements_display()
-
-    def create_nws_office_card(self, name: str, data: Dict[str, str]) -> QFrame:
-        """Create a card widget for NWS office information"""
-        card = QFrame()
-        card.setFrameStyle(QFrame.Shape.Box)
-        card.setStyleSheet("""
-            QFrame {
-                border: 1px solid #bdc3c7;
-                border-radius: 2px;
-                background-color: #000000;
-                color: #ffffff;
-                padding: 2px;
-            }
-        """)
-        # Remove fixed heights to allow dynamic sizing
-        card.setMinimumHeight(80)  # Reduced minimum to allow more shrinking
-        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        # Main layout with better spacing
-        layout = QVBoxLayout()
-        layout.setSpacing(6)  # Slightly reduced for compact view
-        layout.setContentsMargins(8, 8, 8, 8)  # Reduced margins for smaller windows
-
-        # Office name and code - larger, more readable font
-        header = QLabel(f"{name} ({data['code']})")
-        header.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50;")
-        header.setWordWrap(True)  # Allow wrapping for long names
-        header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        header.setMinimumHeight(0)  # Allow it to shrink
-
-        # Coverage area - larger font
-        areas = QLabel(f"Areas: {data['areas']}")
-        areas.setWordWrap(True)
-        areas.setStyleSheet("color: #7f8c8d; font-size: 12px;")  # Slightly smaller for compact view
-        areas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        areas.setMinimumHeight(0)  # Allow it to shrink
-
-        # Contact info layout with better spacing
-        contact_layout = QHBoxLayout()
-        contact_layout.setSpacing(12)
-        contact_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins from nested layout
-
-        # Phone and web labels - larger, more readable fonts
-        phone_label = QLabel(f"📞 {data['phone']}")
-        phone_label.setStyleSheet("font-size: 11px; color: #34495e;")
-        phone_label.setWordWrap(True)  # Allow wrapping
-        phone_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        phone_label.setMinimumHeight(0)
-
-        web_label = QLabel(f"🌐 {data['url'].replace('https://', '')}")
-        web_label.setStyleSheet("font-size: 11px; color: #3498db;")
-        web_label.setWordWrap(True)  # Allow wrapping
-        web_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        web_label.setMinimumHeight(0)
-
-        # Add contact widgets to layout
-        contact_layout.addWidget(phone_label)
-        contact_layout.addWidget(web_label)
-
-        # Add all components to main layout
-        layout.addWidget(header)
-        layout.addWidget(areas)
-        layout.addLayout(contact_layout)
-        # Remove addStretch() to allow natural sizing instead of forcing extra space
-
-        card.setLayout(layout)
-        return card
 
     def init_toolkit_tab(self):
         # FIX: Add parentheses to instantiate QWidget
@@ -4433,33 +4520,135 @@ In Netlogger, click "Close Net" and log the check-ins. Beginning with last check
         QMessageBox.information(self, "Print", "Print functionality would be implemented here.\nFor now, please use Export and print the file.")
 
     def refresh_weather_data(self):
-        """Refresh weather data (placeholder)"""
-        self.status_bar.show_message("Refreshing weather data...", progress=True)
+        """Refresh RWR data from NWS Pueblo"""
+        self.status_bar.show_message("Refreshing Regional Weather Roundup...", progress=True)
         self.status_bar.set_progress(50)
 
-        # Simulate data refresh
-        QTimer.singleShot(2000, lambda: self.status_bar.show_message("Weather data updated"))
-        QTimer.singleShot(2000, lambda: self.status_bar.set_progress(100))
+        # Fetch RWR as HTML
+        rwr_fetcher = RWRFetcher()
+        rwr_html = rwr_fetcher.get_rwr_html()
 
-        # In a real implementation, this would fetch data from NWS APIs
-        placeholder_weather = """CURRENT WEATHER CONDITIONS (Simulated Data):
+        # Display the HTML (use setHtml instead of setPlainText)
+        self.conditions_display.setHtml(rwr_html)
 
-Denver Metro: Clear, 68°F, Wind: W 5 mph, Visibility: 10 miles
-Colorado Springs: Partly cloudy, 65°F, Wind: SW 8 mph
-Grand Junction: Sunny, 72°F, Wind: Calm
-Fort Collins: Clear, 66°F, Wind: NW 3 mph
+        self.status_bar.set_progress(100)
+        self.status_bar.show_message("Regional Weather Roundup updated")
 
-No active weather warnings or watches for Colorado.
-No severe weather expected through this evening.
+        # Clear the progress after a short delay
+        QTimer.singleShot(2000, lambda: self.status_bar.set_progress(0))
 
-Last updated: """ + get_current_mountain_time()['full']
+    def on_weather_progress(self, progress_value):
+        """Update progress bar during weather fetch"""
+        self.status_bar.set_progress(progress_value)
 
-        self.conditions_display.setPlainText(placeholder_weather)
+    def on_weather_data_ready(self, all_conditions):
+        """Handle weather data when it's ready"""
+        self.status_bar.set_progress(100)
+        self.status_bar.show_message("Weather data updated")
 
-    def update_announcements_display(self):
-        """Update the announcements display"""
-        announcements_text = "\n".join([f"• {ann}" for ann in self.net_data.weather_announcements])
-        self.announcements_display.setPlainText(announcements_text)
+        # Format the weather data for display
+        weather_text = self.format_weather_data(all_conditions)
+        weather_text += f"\n\nLast updated: {get_current_mountain_time()['full']}"
+
+        self.conditions_display.setPlainText(weather_text)
+
+        # Clear the progress after a short delay
+        QTimer.singleShot(2000, lambda: self.status_bar.set_progress(0))
+
+    def on_weather_error(self, error_message):
+        """Handle RWR fetch errors"""
+        self.status_bar.set_progress(0)
+        self.status_bar.show_message(f"Error fetching RWR: {error_message}")
+
+        # Show fallback message
+        fallback_text = f"Unable to fetch Regional Weather Roundup: {error_message}\n\n"
+        fallback_text += """For current regional weather information, visit:
+    https://forecast.weather.gov/product.php?site=PUB&issuedby=CO&product=RWR&format=txt&version=1&glossary=0"""
+
+        fallback_text += f"\n\nLast attempt: {get_current_mountain_time()['full']}"
+        self.conditions_display.setPlainText(fallback_text)
+
+    def format_weather_data(self, all_conditions):
+        """Format weather conditions for display"""
+        weather_lines = ["CURRENT WEATHER CONDITIONS (Live NWS Data):"]
+
+        # Sort cities for consistent display
+        sorted_cities = sorted(all_conditions.keys())
+
+        for city in sorted_cities:
+            conditions = all_conditions[city]
+
+            if 'error' in conditions:
+                weather_lines.append(f"{city}: Data unavailable - {conditions['error']}")
+            else:
+                # Format temperature
+                temp_f = conditions.get('temperature_F')
+                if temp_f is not None:
+                    temp_str = f"{temp_f:.0f}°F"
+                else:
+                    temp_str = "N/A"
+
+                # Format description
+                desc = conditions.get('description', 'N/A')
+                if desc == 'N/A' or desc is None:
+                    desc = "Conditions unknown"
+
+                # Format wind
+                wind_mps = conditions.get('wind_mps')
+                if wind_mps is not None:
+                    # Convert m/s to mph for display
+                    wind_mph = wind_mps * 2.237
+                    if wind_mph < 1:
+                        wind_str = "Calm"
+                    else:
+                        wind_str = f"Wind: {wind_mph:.0f} mph"
+                else:
+                    wind_str = "Wind: N/A"
+
+                # Format humidity
+                humidity = conditions.get('humidity_pct')
+                if humidity is not None:
+                    humidity_str = f"Humidity: {humidity:.0f}%"
+                else:
+                    humidity_str = "Humidity: N/A"
+
+                # Format the line
+                weather_lines.append(
+                    f"{city}: {desc}, {temp_str}, {wind_str}, {humidity_str}"
+                )
+
+        # Fetch and add Regional Weather Roundup from PUB
+        weather_lines.append("")
+        weather_lines.append("="*60)
+        weather_lines.append("REGIONAL WEATHER ROUNDUP (NWS Pueblo)")
+        weather_lines.append("="*60)
+
+        rwr_fetcher = RWRFetcher()
+        rwr_text = rwr_fetcher.get_rwr_with_fallback()
+        weather_lines.append(rwr_text)
+
+        # Add general advisories
+        weather_lines.append("")
+        weather_lines.append("For detailed forecasts and warnings, visit weather.gov")
+        weather_lines.append("Data provided by National Weather Service")
+
+        return "\n".join(weather_lines)
+
+    def load_initial_weather_data(self):
+        """Load RWR data when the application starts"""
+        # Set initial placeholder text
+        initial_text = """Loading Regional Weather Roundup...
+
+    This may take a moment as we fetch the current RWR
+    from the National Weather Service Pueblo office.
+
+    If this is taking too long, you can click the refresh button
+    to try again."""
+
+        self.conditions_display.setPlainText(initial_text)
+
+        # Start loading RWR data after a short delay
+        QTimer.singleShot(1000, self.refresh_weather_data)
 
     def change_theme(self, theme_name: str):
         """Change application theme"""
