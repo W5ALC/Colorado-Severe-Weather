@@ -23,13 +23,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller beautifulsoup4 pillow requests PyQt6 PyQt6-WebEngine
+          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow pytz feedparser
           # Optional: install other requirements
           # pip install -r requirements.txt
 
       - name: Build EXE with PyInstaller
         run: |
-          pyinstaller --onefile Colorado-Severe-Weather.py
+          pyinstaller --onefile Severe-Weather-Network-expansion-W10.py
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
