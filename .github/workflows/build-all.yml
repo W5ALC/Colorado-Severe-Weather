@@ -38,17 +38,17 @@ jobs:
 
       - name: 🏗️ Build Application
         run: |
-          $mainFile = "main.py"
-          if (Test-Path "main.py") {
-            $mainFile = "main.py"
+          $mainFile = "Severe-Weather-Network-expansion-W10.py"
+          if (Test-Path "Severe-Weather-Network-expansion-W10.py") {
+            $mainFile = "Severe-Weather-Network-expansion-W10.py"
           } elseif (Test-Path "app.py") {
             $mainFile = "app.py"
           } elseif (Test-Path "Colorado-Severe-Weather.py") {
             $mainFile = "Colorado-Severe-Weather.py"
           } else {
-            Write-Host "Creating placeholder main.py..."
-            "print('CSWN Toolkit - Please add your main application code')" | Out-File -FilePath "main.py" -Encoding UTF8
-            $mainFile = "main.py"
+            Write-Host "Creating placeholder Severe-Weather-Network-expansion-W10.py..."
+            "print('CSWN Toolkit - Please add your main application code')" | Out-File -FilePath "Severe-Weather-Network-expansion-W10.py" -Encoding UTF8
+            $mainFile = "Severe-Weather-Network-expansion-W10.py"
           }
           
           Write-Host "Building from: $mainFile"
@@ -157,16 +157,16 @@ jobs:
 
       - name: 🏗️ Build Application
         run: |
-          if [ -f "main.py" ]; then
-            MAIN_FILE="main.py"
+          if [ -f "Severe-Weather-Network-expansion-W10.py" ]; then
+            MAIN_FILE="Severe-Weather-Network-expansion-W10.py"
           elif [ -f "app.py" ]; then
             MAIN_FILE="app.py"
           elif [ -f "Colorado-Severe-Weather.py" ]; then
             MAIN_FILE="Colorado-Severe-Weather.py"
           else
-            echo "Creating placeholder main.py..."
-            echo "print('CSWN Toolkit - Please add your main application code')" > main.py
-            MAIN_FILE="main.py"
+            echo "Creating placeholder Severe-Weather-Network-expansion-W10.py..."
+            echo "print('CSWN Toolkit - Please add your main application code')" > Severe-Weather-Network-expansion-W10.py
+            MAIN_FILE="Severe-Weather-Network-expansion-W10.py"
           fi
           
           echo "Building from: $MAIN_FILE"
@@ -371,16 +371,16 @@ jobs:
 
       - name: 🏗️ Build Application
         run: |
-          if [ -f "main.py" ]; then
-            MAIN_FILE="main.py"
+          if [ -f "Severe-Weather-Network-expansion-W10.py" ]; then
+            MAIN_FILE="Severe-Weather-Network-expansion-W10.py"
           elif [ -f "app.py" ]; then
             MAIN_FILE="app.py"
           elif [ -f "Colorado-Severe-Weather.py" ]; then
             MAIN_FILE="Colorado-Severe-Weather.py"
           else
-            echo "Creating placeholder main.py..."
-            echo "print('CSWN Toolkit - Please add your main application code')" > main.py
-            MAIN_FILE="main.py"
+            echo "Creating placeholder Severe-Weather-Network-expansion-W10.py..."
+            echo "print('CSWN Toolkit - Please add your main application code')" > Severe-Weather-Network-expansion-W10.py
+            MAIN_FILE="Severe-Weather-Network-expansion-W10.py"
           fi
           
           echo "Building from: $MAIN_FILE"
