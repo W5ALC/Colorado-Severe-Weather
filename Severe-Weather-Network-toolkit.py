@@ -24,7 +24,12 @@ import time
 import webbrowser
 import threading
 import pytz
+import feedparser
+import subprocess
+import tempfile
+import shutil
 
+from pathlib import Path
 from bs4 import BeautifulSoup
 import re
 from datetime import datetime, timezone, timedelta
@@ -74,7 +79,7 @@ class Config:
     APP_TITLE = "Colorado Severe Weather Network Toolkit"
     APP_AUTHOR = "W5ALC"
     AUTHOR_EMAIL = "Jon.W5ALC@gmail.com"
-    APP_VERSION = "2.4.0 Enhanced"
+    APP_VERSION = "3.1.0 Enhanced"
 
     DEFAULT_CONFIG = {
         "theme": "dark",
@@ -109,151 +114,26 @@ class Config:
     ERROR_LOG = CONFIG_DIR / 'weather_toolkit_error.log'
     os.environ['FONTCONFIG_PATH'] = '/etc/fonts'
 
-# resources = {
-#     "⚠️ Hazardous Weather Outlooks": {
-#         "Grand Junction HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=GJT&product=HWO",
-#         "Boulder HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=BOU&product=HWO",
-#         "Goodland HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=GLD&product=HWO",
-#         "Pueblo HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=PUB&product=HWO",
-#         "Cheyenne HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=CYS&product=HWO",
-#         "Albuquerque HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=ABQ&product=HWO",
-#         "Flagstaff HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=FGZ&product=HWO",
-#         "Salt Lake City HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=SLC&product=HWO",
-#         "North Platte HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=LBF&product=HWO",
-#         "Dodge City HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=DDC&product=HWO",
-#         "Amarillo HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=AMA&product=HWO",
-#         "Topeka HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=TOP&product=HWO",
-#         "Las Vegas HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=VEF&product=HWO",
-#         "Phoenix HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=PSR&product=HWO",
-#         "Riverton HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=RIW&product=HWO",
-#     },
-#     "📊 Area Forecast Discussions": {
-#         "Grand Junction AFD": "https://forecast.weather.gov/product.php?site=GJT&product=AFD&issuedby=GJT",
-#         "Boulder AFD": "https://forecast.weather.gov/product.php?site=BOU&product=AFD&issuedby=BOU",
-#         "Goodland AFD": "https://forecast.weather.gov/product.php?site=GLD&product=AFD&issuedby=GLD",
-#         "Pueblo AFD": "https://forecast.weather.gov/product.php?site=PUB&product=AFD&issuedby=PUB",
-#         "Cheyenne AFD": "https://forecast.weather.gov/product.php?site=CYS&product=AFD&issuedby=CYS",
-#         "Albuquerque AFD": "https://forecast.weather.gov/product.php?site=ABQ&product=AFD&issuedby=ABQ",
-#         "Flagstaff AFD": "https://forecast.weather.gov/product.php?site=FGZ&product=AFD&issuedby=FGZ",
-#         "Salt Lake City AFD": "https://forecast.weather.gov/product.php?site=SLC&product=AFD&issuedby=SLC",
-#         "North Platte AFD": "https://forecast.weather.gov/product.php?site=LBF&product=AFD&issuedby=LBF",
-#         "Dodge City AFD": "https://forecast.weather.gov/product.php?site=DDC&product=AFD&issuedby=DDC",
-#         "Amarillo AFD": "https://forecast.weather.gov/product.php?site=AMA&product=AFD&issuedby=AMA",
-#         "Topeka AFD": "https://forecast.weather.gov/product.php?site=TOP&product=AFD&issuedby=TOP",
-#         "Las Vegas AFD": "https://forecast.weather.gov/product.php?site=VEF&product=AFD&issuedby=VEF",
-#         "Phoenix AFD": "https://forecast.weather.gov/product.php?site=PSR&product=AFD&issuedby=PSR",
-#         "Riverton AFD": "https://forecast.weather.gov/product.php?site=RIW&product=AFD&issuedby=RIW",
-#     },
-#     "🏠 NWS Office Homepages": {
-#         "Grand Junction NWS": "https://www.weather.gov/gjt/",
-#         "Boulder NWS": "https://www.weather.gov/bou/",
-#         "Goodland NWS": "https://www.weather.gov/gld/",
-#         "Pueblo NWS": "https://www.weather.gov/pub/",
-#         "Cheyenne NWS": "https://www.weather.gov/cys/",
-#         "Albuquerque NWS": "https://www.weather.gov/abq/",
-#         "Flagstaff NWS": "https://www.weather.gov/fgz/",
-#         "Salt Lake City NWS": "https://www.weather.gov/slc/",
-#         "North Platte NWS": "https://www.weather.gov/lbf/",
-#         "Dodge City NWS": "https://www.weather.gov/ddc/",
-#         "Amarillo NWS": "https://www.weather.gov/ama/",
-#         "Topeka NWS": "https://www.weather.gov/top/",
-#         "Las Vegas NWS": "https://www.weather.gov/vef/",
-#         "Phoenix NWS": "https://www.weather.gov/psr/",
-#         "Riverton NWS": "https://www.weather.gov/riw/",
-#     },
-#     "🚨 Active Alerts and Reports": {
-#         "NWS Colorado Warnings Map": "https://www.weather.gov/alerts/co",
-#         "Colorado Active NWS Alerts": "https://alerts.weather.gov/cap/co.php?x=0",
-#         "NWS Storm Reports": "https://mesonet.agron.iastate.edu/lsr/#CO",
-#         "NWS Snow & Ice Reports": "https://www.weather.gov/crh/snowreports?sid=pub",
-#         "mPING Reports": "https://mping.ou.edu/display/",
-#         "CoCoRaHS Rain/Snow Map": "https://www.cocorahs.org/Maps/ViewMap.aspx?state=CO",
-#         "NWS EDD Digital Display": "https://digital.weather.gov/",
-#     },
-#     "📡 Radar and Satellite": {
-#         "NWS Enhanced Radar": "https://radar.weather.gov/",
-#         "COD NEXRAD Viewer SW": "https://weather.cod.edu/satrad/?parms=regional-southwest-comp_radar-24-0-100-1&checked=map",
-#         "Ventusky Radar": "https://www.ventusky.com/?p=38.9972;-105.5478;6&l=radar",
-#         "Ventusky Satellite": "https://www.ventusky.com/?p=38.9972;-105.5478;6&l=satellite",
-#         "GOES Geocolor": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/CONUS/GEOCOLOR/latest.jpg",
-#         "GOES Sandwich RGB": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/CONUS/Sandwich/2500x1500.jpg",
-#         "GOES SLIDER": "https://rammb-slider.cira.colostate.edu/?sat=goes-16&sec=Colorado",
-#         "Zoom Earth": "https://zoom.earth/",
-#     },
-#     "🌐 Model and Forecast Tools": {
-#         "National Forecast": "https://www.wpc.ncep.noaa.gov/national_forecast/natfcst.php",
-#         "WPC Excessive Rainfall Outlook": "https://www.wpc.ncep.noaa.gov/qpf/excessive_rainfall_outlook_ero.php",
-#         "NDFD Graphical Forecast": "https://digital.weather.gov/?zoom=6&lat=38.9972&lon=-105.5478&layers=F00BTTTFFTT&region=0&element=4",
-#         "WPC Homepage": "https://www.wpc.ncep.noaa.gov/",
-#         "HRRR Model Viewer": "https://rapidrefresh.noaa.gov/hrrr/HRRR/",
-#         "NAM NEST Model": "https://mag.ncep.noaa.gov/model-guidance-model-area.php?group=Model%20Guidance&model=NAM%20NEST",
-#         "Pivotal Weather Models": "https://www.pivotalweather.com/model.php?m=nam",
-#         "NBM Graphical Forecasts": "https://digital.weather.gov/",
-#     },
-#     "⛈️ SPC and Severe Weather": {
-#         "SPC Thunderstorm Outlook": "https://www.spc.noaa.gov/products/exper/enhtstm/",
-#         "SPC Mesoscale Discussions": "https://www.spc.noaa.gov/products/md/",
-#         "SPC Mesoanalysis": "https://www.spc.noaa.gov/exper/mesoanalysis/",
-#         "SPC Convective Outlooks": "https://www.spc.noaa.gov/products/outlook/",
-#         "SPC Watches": "https://www.spc.noaa.gov/products/watch/",
-#         "SPC Storm Reports": "https://www.spc.noaa.gov/climo/reports/",
-#         "SPC GIS Data": "https://www.spc.noaa.gov/gis/svrgis/",
-#     },
-#     "📻 Skywarn and Amateur Radio": {
-#         "Skywarn Spotter's Field Guide": "https://www.weather.gov/spotterguide/",
-#         "Skywarn Spotter Checklist": "https://www.weather.gov/images/gjt/spotter/Reporting_Checklist.png",
-#         "Skywarn National Page": "https://www.weather.gov/skywarn/",
-#         "Skywarn Online Training": "https://learn.meted.ucar.edu/#/curricula/0302af65-dcad-4841-87a8-77014473fe29",
-#         "Colorado ARES": "https://www.coloradoares.org/",
-#         "SkyHubLink Website": "https://skyhublink.com/",
-#         "SkyHubLink Live Audio": "https://hose.brandmeister.network/?subscribe=310847",
-#         "Colorado Severe WX Hoseline": "https://hose.brandmeister.network/?subscribe=31083",
-#     },
-#     "🔥 Fire, Flood, and Avalanche": {
-#         "NWS Fire Weather": "https://www.weather.gov/dlh/fwd?lat=38.278&lon=-104.612&clat=38.167&clon=-105.150&zoom=13.000&basemap=stamenterrain&bbox=[-12057533.358,4677075.466,-11325570.961,5030991.35]&layers=USStates|ForecastDot|FireWeatherZones|SurfaceFronts|&fwf=F&dispersion=0,39.95215265374435,39.95215265374435,59.68899475900751,149.67105263157896&ndfd=WindGust&nohelp=t#",
-#         "National Interagency Fire Center": "https://www.nifc.gov/",
-#         "USGS Colorado Stream Gauges": "https://waterdata.usgs.gov/co/nwis/rt",
-#         "NWS River Forecasts": "https://water.weather.gov/ahps2/index.php?wfo=pub",
-#         "Colorado Avalanche Info Center": "https://avalanche.state.co.us/",
-#     }
-# }
-
 resources = {
     "⚠️ Hazardous Weather Outlooks": {
-        # Colorado and surrounding WFOs
         "Grand Junction HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=GJT&product=HWO",
         "Boulder HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=BOU&product=HWO",
         "Goodland HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=GLD&product=HWO",
         "Pueblo HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=PUB&product=HWO",
         "Cheyenne HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=CYS&product=HWO",
         "Albuquerque HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=ABQ&product=HWO",
-        "Flagstaff HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=FGZ&product=HWO",
         "Salt Lake City HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=SLC&product=HWO",
-        "North Platte HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=LBF&product=HWO",
-        "Dodge City HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=DDC&product=HWO",
-        "Amarillo HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=AMA&product=HWO",
-        "Topeka HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=TOP&product=HWO",
-        "Las Vegas HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=VEF&product=HWO",
-        "Phoenix HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=PSR&product=HWO",
         "Riverton HWO": "https://forecast.weather.gov/product.php?site=NWS&issuedby=RIW&product=HWO",
     },
 
     "📊 Area Forecast Discussions": {
-        # All 15 nearest WFOs
         "Grand Junction AFD": "https://forecast.weather.gov/product.php?site=GJT&product=AFD&issuedby=GJT",
         "Boulder AFD": "https://forecast.weather.gov/product.php?site=BOU&product=AFD&issuedby=BOU",
         "Goodland AFD": "https://forecast.weather.gov/product.php?site=GLD&product=AFD&issuedby=GLD",
         "Pueblo AFD": "https://forecast.weather.gov/product.php?site=PUB&product=AFD&issuedby=PUB",
         "Cheyenne AFD": "https://forecast.weather.gov/product.php?site=CYS&product=AFD&issuedby=CYS",
         "Albuquerque AFD": "https://forecast.weather.gov/product.php?site=ABQ&product=AFD&issuedby=ABQ",
-        "Flagstaff AFD": "https://forecast.weather.gov/product.php?site=FGZ&product=AFD&issuedby=FGZ",
         "Salt Lake City AFD": "https://forecast.weather.gov/product.php?site=SLC&product=AFD&issuedby=SLC",
-        "North Platte AFD": "https://forecast.weather.gov/product.php?site=LBF&product=AFD&issuedby=LBF",
-        "Dodge City AFD": "https://forecast.weather.gov/product.php?site=DDC&product=AFD&issuedby=DDC",
-        "Amarillo AFD": "https://forecast.weather.gov/product.php?site=AMA&product=AFD&issuedby=AMA",
-        "Topeka AFD": "https://forecast.weather.gov/product.php?site=TOP&product=AFD&issuedby=TOP",
-        "Las Vegas AFD": "https://forecast.weather.gov/product.php?site=VEF&product=AFD&issuedby=VEF",
-        "Phoenix AFD": "https://forecast.weather.gov/product.php?site=PSR&product=AFD&issuedby=PSR",
         "Riverton AFD": "https://forecast.weather.gov/product.php?site=RIW&product=AFD&issuedby=RIW",
     },
 
@@ -966,14 +846,13 @@ class AlertsDisplayDialog(QDialog):
         clipboard.setText(self.text_area.toPlainText())
 
     def save_as(self):
-        filename, _ = QFileDialog.getSaveFileName(self, "Save As", "", "Text Files (*.txt);;All Files (*)")
-        if filename:
+        fname, _ = QFileDialog.getSaveFileName(self, "Save Text", "", "Text Files (*.txt)")
+        if fname:
             try:
-                with open(filename, 'w') as f:
-                    f.write(self.text_area.toPlainText())
-                QMessageBox.information(self, "Success", f"Saved to {filename}")
+                with open(fname, "w") as f:
+                    f.write(self.text.toPlainText())
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Could not save file: {e}")
+                QMessageBox.warning(self, "Save Error", f"Could not save file: {e}")
 
 class TextPopup(QDialog):
     def __init__(self, parent, url, title, typ, theme, font_size, parse_pre=False):
@@ -1326,18 +1205,13 @@ class WebViewPopup(QDialog):
         self.status.setText(f"🔄 Loading... {progress}%")
 
 class AlertFetcher(QThread):
-    alerts_loaded = pyqtSignal(str)
+    alerts_loaded = pyqtSignal(str)  # Emits formatted text string
     progress_updated = pyqtSignal(int)
 
     def __init__(self, url, parse_atom=True, parent=None):
         super().__init__(parent)
         self.url = url
         self.parse_atom = parse_atom
-
-    def fetch_colorado_alerts(self):
-        url = "https://alerts.weather.gov/cap/co.php?x=0"
-        dialog = AlertsDisplayDialog(self, url, "Colorado NWS Alerts", self.theme, self.font_size, self.auto_refresh_mins)
-        dialog.show()
 
     def run(self):
         text = ""
@@ -1347,21 +1221,31 @@ class AlertFetcher(QThread):
             self.progress_updated.emit(50)
 
             if self.parse_atom:
-                rootx = ET.fromstring(resp.content)
-                entries = rootx.findall("{http://www.w3.org/2005/Atom}entry")
+                # Use feedparser - it handles malformed XML gracefully
+                feed = feedparser.parse(resp.content)
                 self.progress_updated.emit(75)
 
-                for entry in entries:
-                    title = entry.find("{http://www.w3.org/2005/Atom}title")
-                    summary = entry.find("{http://www.w3.org/2005/Atom}summary")
-                    link = entry.find("{http://www.w3.org/2005/Atom}link")
-                    area = entry.find("{urn:oasis:names:tc:emergency:cap:1.1}areaDesc")
-                    counties = area.text if area is not None and area.text else ""
-                    text += f"🚨 {title.text}\n📝 {summary.text}\n🗺️ {counties}\n🔗 {link.attrib.get('href') if link is not None else ''}\n\n"
+                if not feed.entries:
+                    text = "No alerts found."
+                else:
+                    for entry in feed.entries:
+                        title = entry.get('title', 'No title')
+                        summary = entry.get('summary', 'No summary')
+                        link = entry.get('link', '')
+
+                        # Try to get area description from CAP namespace
+                        counties = ""
+                        if hasattr(entry, 'cap_areadesc'):
+                            counties = entry.cap_areadesc
+                        elif 'cap_areadesc' in entry:
+                            counties = entry['cap_areadesc']
+
+                        text += f"🚨 {title}\n📝 {summary}\n🗺️ {counties}\n🔗 {link}\n\n"
             else:
                 text = resp.text
 
             self.progress_updated.emit(100)
+
         except Exception as e:
             text = f"❌ Failed to fetch alerts:\n{e}"
             log_error(f"Alert fetch error: {e}")
@@ -4711,41 +4595,443 @@ In Netlogger, click "Close Net" and log the check-ins. Beginning with last check
         self.status_bar.show_message("Complete script copied to clipboard")
 
     def export_script(self):
-        """Export script to file"""
+        """Export script to file with LaTeX support and automatic PDF generation"""
         if not self.sections:
             QMessageBox.information(self, "No Script", "Please generate a script first.")
             return
 
         time_info = get_current_mountain_time()
-        default_filename = f"Colorado_SWO_Net_{time_info['datetime'].strftime('%Y%m%d_%H%M')}.txt"
+        default_filename = f"Colorado_SWO_Net_{time_info['datetime'].strftime('%Y%m%d_%H%M')}"
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Net Script", default_filename,
-            "Text Files (*.txt);;All Files (*)"
+        file_path, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export Net Script",
+            default_filename,
+            "PDF Files (*.pdf);;LaTeX Files (*.tex);;Text Files (*.txt);;All Files (*)"
         )
 
-        if file_path:
-            try:
+        if not file_path:  # User cancelled
+            return
+
+        # Determine format based on extension
+        if '.' not in file_path.split('/')[-1]:
+            # No extension, default to PDF
+            file_path += '.pdf'
+
+        file_ext = Path(file_path).suffix.lower()
+
+        try:
+            # Build the content
+            content_parts = []
+            content_parts.append(f"Colorado Severe Weather Outlook Net Script\n")
+            content_parts.append(f"Generated: {time_info['date']} at {time_info['full']}\n")
+            content_parts.append(f"Net Control: {self.net_data.callsign} - {self.net_data.name}\n")
+            content_parts.append(f"Location: {self.net_data.location}\n")
+            if self.net_data.logger_callsign:
+                content_parts.append(f"Logger: {self.net_data.logger_callsign} - {self.net_data.logger_name}\n")
+            content_parts.append("\n" + "="*60 + "\n\n")
+
+            for section_name, section_text in self.sections:
+                content_parts.append(f"=== {section_name.upper()} ===\n\n")
+                content_parts.append(section_text)
+                content_parts.append("\n\n" + "="*50 + "\n\n")
+
+            content = ''.join(content_parts)
+
+            # Handle different export formats
+            if file_ext == '.pdf':
+                success = self.generate_pdf(content, file_path)
+                if success:
+                    format_msg = "(PDF format - compiled from LaTeX)"
+                else:
+                    return  # Error already shown
+            elif file_ext == '.tex':
+                final_content = self.generate_latex_document(content)
                 with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(f"Colorado Severe Weather Outlook Net Script\n")
-                    f.write(f"Generated: {time_info['date']} at {time_info['full']}\n")
-                    f.write(f"Net Control: {self.net_data.callsign} - {self.net_data.name}\n")
-                    f.write(f"Location: {self.net_data.location}\n")
-                    if self.net_data.logger_callsign:
-                        f.write(f"Logger: {self.net_data.logger_callsign} - {self.net_data.logger_name}\n")
-                    f.write("\n" + "="*60 + "\n\n")
+                    f.write(final_content)
+                format_msg = "(LaTeX source)"
+            else:
+                # Plain text
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                format_msg = "(Plain text)"
 
-                    for section_name, section_text in self.sections:
-                        f.write(f"=== {section_name.upper()} ===\n\n")
-                        f.write(section_text)
-                        f.write("\n\n" + "="*50 + "\n\n")
+            self.status_bar.show_message(f"Script exported to {file_path} {format_msg}")
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Script exported to:\n{file_path}\n\n{format_msg}"
+            )
 
-                self.status_bar.show_message(f"Script exported to {file_path}")
-                QMessageBox.information(self, "Export Successful", f"Script exported to:\n{file_path}")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.status_bar.show_message(f"Export failed: {e}", error=True)
+            QMessageBox.critical(self, "Export Error", f"Failed to export script:\n{e}")
+
+
+    def generate_pdf(self, content, output_pdf_path):
+        """Generate PDF by compiling LaTeX in a temporary directory"""
+
+        # Create a temporary directory for LaTeX compilation
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            tex_file = temp_path / "net_script.tex"
+
+            # Generate LaTeX content
+            latex_content = self.generate_latex_document(content)
+
+            # Write LaTeX file
+            with open(tex_file, 'w', encoding='utf-8') as f:
+                f.write(latex_content)
+
+            self.status_bar.show_message("Compiling PDF from LaTeX...")
+
+            try:
+                # Run pdflatex twice (first pass for content, second for TOC/references)
+                for pass_num in [1, 2]:
+                    result = subprocess.run(
+                        ['pdflatex', '-interaction=nonstopmode', '-halt-on-error',
+                        '-output-directory', str(temp_path), str(tex_file)],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+
+                    if result.returncode != 0:
+                        # LaTeX compilation failed
+                        error_msg = f"LaTeX compilation failed (pass {pass_num}):\n\n"
+
+                        # Try to extract useful error information
+                        if result.stdout:
+                            lines = result.stdout.split('\n')
+                            error_lines = [line for line in lines if '!' in line or 'Error' in line]
+                            if error_lines:
+                                error_msg += '\n'.join(error_lines[:5])
+                            else:
+                                error_msg += result.stdout[-500:]  # Last 500 chars
+
+                        self.status_bar.show_message("PDF compilation failed", error=True)
+                        QMessageBox.critical(
+                            self,
+                            "PDF Compilation Error",
+                            error_msg + "\n\nYou can export as .tex file and compile manually."
+                        )
+                        return False
+
+                # Check if PDF was created
+                pdf_file = temp_path / "net_script.pdf"
+                if not pdf_file.exists():
+                    raise FileNotFoundError("PDF was not generated")
+
+                # Copy PDF to final destination
+                shutil.copy2(pdf_file, output_pdf_path)
+
+                return True
+
+            except subprocess.TimeoutExpired:
+                self.status_bar.show_message("PDF compilation timed out", error=True)
+                QMessageBox.critical(
+                    self,
+                    "Compilation Timeout",
+                    "PDF compilation took too long and was cancelled.\n\n"
+                    "You can export as .tex file and compile manually."
+                )
+                return False
+
+            except FileNotFoundError as e:
+                if 'pdflatex' in str(e):
+                    self.status_bar.show_message("pdflatex not found", error=True)
+                    QMessageBox.critical(
+                        self,
+                        "pdflatex Not Found",
+                        "pdflatex command not found. Please ensure LaTeX is installed and in your PATH.\n\n"
+                        "You can export as .tex file and compile manually."
+                    )
+                else:
+                    self.status_bar.show_message("PDF generation failed", error=True)
+                    QMessageBox.critical(
+                        self,
+                        "PDF Generation Error",
+                        f"Failed to generate PDF: {e}\n\n"
+                        "You can export as .tex file and compile manually."
+                    )
+                return False
 
             except Exception as e:
-                self.status_bar.show_message(f"Export failed: {e}", error=True)
-                QMessageBox.critical(self, "Export Error", f"Failed to export script:\n{e}")
+                self.status_bar.show_message("PDF generation failed", error=True)
+                QMessageBox.critical(
+                    self,
+                    "PDF Generation Error",
+                    f"Unexpected error during PDF generation: {e}\n\n"
+                    "You can export as .tex file and compile manually."
+                )
+                return False
+
+
+    def generate_latex_document(self, content):
+        """Generate a professionally formatted LaTeX document from net script"""
+
+
+        # Extract header information from content
+        lines = content.split('\n')
+        title = "Colorado Severe Weather Outlook Net Script"
+        date = ""
+        net_control = ""
+        location = ""
+        logger = ""
+
+        # Try to extract actual values from content
+        for i, line in enumerate(lines[:15]):
+            if "Generated:" in line:
+                date = line.split("Generated:", 1)[1].strip()
+            elif "Net Control:" in line:
+                net_control = line.split("Net Control:", 1)[1].strip()
+            elif "Location:" in line and not location:
+                location = line.split("Location:", 1)[1].strip()
+            elif "Logger:" in line:
+                logger = line.split("Logger:", 1)[1].strip()
+
+        # Escape special LaTeX characters in content
+        def escape_latex(text):
+            """Escape special LaTeX characters"""
+            replacements = {
+                '\\': r'\textbackslash{}',
+                '&': r'\&',
+                '%': r'\%',
+                '$': r'\$',
+                '#': r'\#',
+                '_': r'\_',
+                '{': r'\{',
+                '}': r'\}',
+                '~': r'\textasciitilde{}',
+                '^': r'\textasciicircum{}',
+            }
+            for old, new in replacements.items():
+                text = text.replace(old, new)
+            return text
+
+        # Process content sections
+        sections = []
+        current_section = None
+        current_content = []
+
+        in_content = False
+        for line in lines:
+            # Skip header lines before the first separator
+            if not in_content:
+                if '=' * 20 in line:
+                    in_content = True
+                continue
+
+            # Detect section headers
+            if line.startswith('=== ') and line.endswith(' ==='):
+                # Save previous section
+                if current_section:
+                    sections.append((current_section, '\n'.join(current_content)))
+
+                # Start new section
+                current_section = line.strip('= ')
+                current_content = []
+            elif line.startswith('===') or line.startswith('===='):
+                # Section separator
+                continue
+            else:
+                current_content.append(line)
+
+        # Don't forget last section
+        if current_section:
+            sections.append((current_section, '\n'.join(current_content)))
+
+        # Build LaTeX document
+        latex_doc = r'''\documentclass[11pt,letterpaper]{article}
+
+    % Packages
+    \usepackage[margin=0.75in]{geometry}
+    \usepackage{fancyhdr}
+    \usepackage{titlesec}
+    \usepackage{enumitem}
+    \usepackage{xcolor}
+    \usepackage{soul}
+    \usepackage[utf8]{inputenc}
+    \usepackage[T1]{fontenc}
+    \usepackage{microtype}
+    \usepackage{tcolorbox}
+    \usepackage{listings}
+    \usepackage{enumitem}
+    \usepackage{graphicx}
+    \usepackage{hyperref}
+    \usepackage{fontawesome5}
+    \usepackage{tabularx}
+    \usepackage{booktabs}
+    \usepackage{tikz}
+    \usepackage{verbatim}
+    \usepackage{textcomp}
+
+
+	% Color scheme
+	\definecolor{primary}{RGB}{0,102,204}
+	\definecolor{secondary}{RGB}{102,51,153}
+	\definecolor{accent}{RGB}{255,102,0}
+	\definecolor{codebg}{RGB}{248,248,248}
+	\definecolor{codered}{RGB}{220,50,47}
+	\definecolor{codegreen}{RGB}{0,128,0}
+	\definecolor{codeblue}{RGB}{0,102,204}
+	\definecolor{warningbg}{RGB}{255,250,205}
+	\definecolor{infobg}{RGB}{230,244,255}
+
+	% Hyperref setup
+	\hypersetup{
+		colorlinks=true,
+		linkcolor=primary,
+		urlcolor=primary,
+		citecolor=primary
+	}
+
+    % Header and footer
+    \pagestyle{fancy}
+    \fancyhf{}
+    \fancyhead[L]{\textbf{Colorado SWO Net}}
+    \fancyhead[R]{''' + escape_latex(date.split(' at ')[0] if ' at ' in date else date) + r'''}
+    \fancyfoot[C]{\thepage}
+    \renewcommand{\headrulewidth}{0.4pt}
+    \renewcommand{\footrulewidth}{0.4pt}
+
+	% Section formatting
+	\titleformat{\section}
+	{\color{primary}\Large\bfseries}
+	{\thesection}{1em}{}[\titlerule]
+
+	\titleformat{\subsection}
+	{\color{secondary}\large\bfseries}
+	{\thesubsection}{1em}{}
+
+	% Custom boxes
+	\tcbuselibrary{skins,breakable}
+
+	\newtcolorbox{infobox}[1][]{
+		colback=infobg,
+		colframe=primary,
+		fonttitle=\bfseries,
+		title={\faInfoCircle\ Information},
+		breakable,
+		#1
+	}
+
+	\newtcolorbox{warningbox}[1][]{
+		colback=warningbg,
+		colframe=accent,
+		fonttitle=\bfseries,
+		title={\faExclamationTriangle\ Warning},
+		breakable,
+		#1
+	}
+
+	\newtcolorbox{commandbox}[1][]{
+		colback=codebg,
+		colframe=codeblue,
+		fonttitle=\bfseries,
+		title={\faExclamationTriangle\ AFD and HWO},
+		breakable,
+		#1
+	}
+
+	% Code listing style
+	\lstdefinestyle{bash}{
+		language=bash,
+		basicstyle=\small\ttfamily,
+		backgroundcolor=\color{codebg},
+		keywordstyle=\color{black}\bfseries,
+		commentstyle=\color{codegreen}\itshape,
+		stringstyle=\color{black},
+		numbers=left,
+		numberstyle=\tiny\color{gray},
+		stepnumber=1,
+		numbersep=8pt,
+		showstringspaces=false,
+		breaklines=true,
+		frame=single,
+		rulecolor=\color{gray! 30},
+		tabsize=4,
+		captionpos=b
+	}
+
+	\lstset{style=bash}
+
+	% Define colors and dimensions for consistency
+	\newcommand{\headerheight}{4.5cm}
+	\newcommand{\pagetitlewidth}{0.85\textwidth}
+
+    % Reduce spacing
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{0.5em}
+    \titlespacing*{\section}{0pt}{1em}{0.5em}
+    \titlespacing*{\subsection}{0pt}{0.8em}{0.3em}
+
+    % Document information
+    \title{\textbf{\Large ''' + escape_latex(title) + r'''}}
+    \author{Net Control: ''' + escape_latex(net_control) + r''' \\
+            Location: ''' + escape_latex(location) + r''' \\
+            Logger: ''' + escape_latex(logger) + r'''}
+
+    \begin{document}
+
+    \maketitle
+    \thispagestyle{fancy}
+    \tableofcontents
+    \newpage
+    '''
+
+        # Add each section
+        for section_name, section_content in sections:
+            # Determine section level
+            if section_name in ['PRE-OPENING', 'OPENING', 'ACCESS INFORMATION',
+                            'WEATHER OUTLOOK', 'NWS OFFICES & PROCEDURES',
+                            'TELEGRAM INFORMATION', 'CHECK-INS', 'CLOSING']:
+                latex_doc += f"\n\\section{{{escape_latex(section_name)}}}\n\n"
+            elif 'WFO' in section_name:
+                latex_doc += f"\n\\section{{{escape_latex(section_name)}}}\n\n"
+            else:
+                latex_doc += f"\n\\subsection{{{escape_latex(section_name)}}}\n\n"
+
+            # Process content
+            content_lines = section_content.strip().split('\n')
+
+            # Check if this is a forecast section (contains technical weather text)
+            is_forecast = any(keyword in section_content.lower()
+                            for keyword in ['.key messages', '.short term', '.long term',
+                                        'forecast discussion', 'hazardous weather outlook'])
+
+            if is_forecast:
+                # Use verbatim for technical forecasts to preserve formatting
+                latex_doc += "\\begin{commandbox}\n\\begin{lstlisting}[style=bash,numbers=none]\n"
+                latex_doc += section_content.strip()
+                latex_doc += "\n" + r"\end{lstlisting}" + "\n" + r"\end{commandbox}" + "\n\n" + r"\newpage"
+            else:
+                # Regular text processing
+                for line in content_lines:
+                    if not line.strip():
+                        latex_doc += "\n"
+                    elif line.strip().startswith('•'):
+                        # Bullet point
+                        latex_doc += f"{escape_latex(line)}\n\n"
+                    elif line.strip().endswith(':'):
+                        # Subheading
+                        latex_doc += f"\\textbf{{{escape_latex(line)}}}\n\n"
+                    else:
+                        # Regular paragraph
+                        latex_doc += f"{escape_latex(line)}\n\n"
+
+        latex_doc += r'''
+    \vfill
+    \begin{center}
+    \textit{73 de Colorado Severe Weather Network}
+    \end{center}
+
+    \end{document}
+    '''
+
+        return latex_doc
 
     def print_script(self):
         """Print the script"""
