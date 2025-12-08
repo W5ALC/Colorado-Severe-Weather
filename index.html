@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colorado Severe Weather Network - Files</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #000000 0%, #1a1a2e 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h1 {
+            font-size: 2.8em;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.3em;
+            opacity: 0.9;
+            color: #00f2fe;
+        }
+
+        .description {
+            margin-top: 15px;
+            font-size: 1em;
+            opacity: 0.8;
+            color: #ccc;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .filter-controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+        }
+
+        .filter-btn {
+            padding: 12px 24px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(79, 172, 254, 0.3);
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            color: white;
+            font-weight: 500;
+        }
+
+        .filter-btn:hover {
+            transform: translateY(-2px);
+            background: rgba(79, 172, 254, 0.2);
+            border-color: rgba(79, 172, 254, 0.6);
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        }
+
+        .filter-btn.active {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: #000;
+            border-color: transparent;
+            font-weight: 600;
+        }
+
+        .stats {
+            text-align: center;
+            color: #00f2fe;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .gallery-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            overflow: hidden;
+            border: 1px solid rgba(79, 172, 254, 0.2);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .gallery-item:hover {
+            transform: translateY(-5px);
+            border-color: rgba(79, 172, 254, 0.6);
+            box-shadow: 0 8px 30px rgba(79, 172, 254, 0.3);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .image-wrapper {
+            width: 100%;
+            height: 250px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .gallery-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s;
+        }
+
+        .gallery-item:hover img {
+            transform: scale(1.1);
+        }
+
+        .file-icon {
+            font-size: 80px;
+            opacity: 0.3;
+        }
+
+        .item-info {
+            padding: 15px;
+        }
+
+        .item-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        .item-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .item-type {
+            font-size: 12px;
+            color: #4facfe;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .download-btn {
+            background: rgba(79, 172, 254, 0.2);
+            border: 1px solid rgba(79, 172, 254, 0.4);
+            color: #00f2fe;
+            padding: 5px 12px;
+            border-radius: 5px;
+            font-size: 11px;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+
+        .download-btn:hover {
+            background: rgba(79, 172, 254, 0.4);
+            border-color: #4facfe;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            position: relative;
+        }
+
+        .modal-content img {
+            max-width: 100%;
+            max-height: 90vh;
+            border-radius: 10px;
+            box-shadow: 0 0 50px rgba(79, 172, 254, 0.5);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 40px;
+            color: white;
+            cursor: pointer;
+            background: rgba(0,0,0,0.7);
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            border: 2px solid rgba(79, 172, 254, 0.5);
+        }
+
+        .modal-close:hover {
+            background: rgba(79, 172, 254, 0.3);
+            transform: rotate(90deg);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 40px;
+        }
+
+        footer a {
+            color: #4facfe;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            color: #00f2fe;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⛈️ Colorado Severe Weather Network</h1>
+            <p class="subtitle">Toolkit File Browser</p>
+            <p class="description">Browse screenshots, resources, and files for the CSWN Toolkit - A comprehensive severe weather monitoring application for Colorado</p>
+        </header>
+
+        <div class="filter-controls">
+            <button class="filter-btn active" data-filter="all">All Files</button>
+            <button class="filter-btn" data-filter="screenshots">Screenshots</button>
+            <button class="filter-btn" data-filter="python">Python Scripts</button>
+            <button class="filter-btn" data-filter="media">Media</button>
+            <button class="filter-btn" data-filter="other">Other</button>
+        </div>
+
+        <div class="stats" id="stats"></div>
+
+        <div class="gallery" id="gallery"></div>
+
+        <footer>
+            <p>Colorado Severe Weather Network Toolkit</p>
+            <p><a href="https://github.com/W5ALC/Colorado-Severe-Weather" target="_blank">View on GitHub</a></p>
+        </footer>
+    </div>
+
+    <div class="modal" id="modal">
+        <span class="modal-close" id="modalClose">&times;</span>
+        <div class="modal-content">
+            <img id="modalImg" src="" alt="">
+        </div>
+    </div>
+
+    <script>
+        const baseUrl = 'https://raw.githubusercontent.com/W5ALC/Colorado-Severe-Weather/main/';
+        const repoUrl = 'https://github.com/W5ALC/Colorado-Severe-Weather/blob/main/';
+        
+        const files = [
+            { name: 'CSWN-AFD.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-CO-Alert.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-GEOS.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-GOES-load.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-GOES-zoom.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-GOES.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-HWO.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-METED.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-Main-Dark.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-Main.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-SPC-1.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-SPC-Browser.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-SPC.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-Weather.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-alert-none.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-toolkit.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWO-BOU-NWS.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWO-CYS-NWS.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWO-Checkins.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWO-Closing.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWO-GJT-NWS.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWO-GLD-NWS.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWO-PUB-NWS.png', type: 'screenshots', ext: 'png' },
+            { name: 'GOES-19-zoom.png', type: 'screenshots', ext: 'png' },
+            { name: 'CSWN-toolkit.py', type: 'python', ext: 'py' },
+            { name: 'Colorado-SWN.py', type: 'python', ext: 'py' },
+            { name: 'Colorado-Severe-Weather.py', type: 'python', ext: 'py' },
+            { name: 'Severe-Weather-Network-expansion-W10.py', type: 'python', ext: 'py' },
+            { name: 'Severe-Weather-Network-net-script.py', type: 'python', ext: 'py' },
+            { name: 'Severe-Weather-Network-toolkit.py', type: 'python', ext: 'py' },
+            { name: 'CSWO.mkv', type: 'media', ext: 'mkv' },
+            { name: 'Colorado-SWN.exe', type: 'other', ext: 'exe' },
+            { name: 'colorado_severe_weather_rounded.ico', type: 'other', ext: 'ico' },
+            { name: 'README.md', type: 'other', ext: 'md' }
+        ];
+
+        const gallery = document.getElementById('gallery');
+        const modal = document.getElementById('modal');
+        const modalImg = document.getElementById('modalImg');
+        const modalClose = document.getElementById('modalClose');
+        const stats = document.getElementById('stats');
+
+        const fileIcons = {
+            'png': '🖼️',
+            'py': '🐍',
+            'mkv': '🎬',
+            'exe': '⚙️',
+            'ico': '🎨',
+            'md': '📄'
+        };
+
+        function updateStats(filter) {
+            const filteredFiles = filter === 'all' ? files : files.filter(f => f.type === filter);
+            stats.textContent = `Showing ${filteredFiles.length} of ${files.length} files`;
+        }
+
+        function renderGallery(filter = 'all') {
+            gallery.innerHTML = '';
+            
+            const filteredFiles = filter === 'all' 
+                ? files 
+                : files.filter(f => f.type === filter);
+
+            updateStats(filter);
+
+            filteredFiles.forEach(file => {
+                const item = document.createElement('div');
+                item.className = 'gallery-item';
+                
+                const isImage = ['png', 'jpg', 'jpeg', 'gif'].includes(file.ext);
+                
+                item.innerHTML = `
+                    <div class="image-wrapper">
+                        ${isImage 
+                            ? `<img src="${baseUrl}${encodeURIComponent(file.name)}" alt="${file.name}" loading="lazy">`
+                            : `<div class="file-icon">${fileIcons[file.ext] || '📄'}</div>`
+                        }
+                    </div>
+                    <div class="item-info">
+                        <div class="item-title">${file.name}</div>
+                        <div class="item-meta">
+                            <span class="item-type">${file.type} • ${file.ext}</span>
+                            <a href="${repoUrl}${encodeURIComponent(file.name)}" 
+                               class="download-btn" 
+                               target="_blank" 
+                               onclick="event.stopPropagation()">View</a>
+                        </div>
+                    </div>
+                `;
+                
+                if (isImage) {
+                    item.addEventListener('click', () => {
+                        modalImg.src = baseUrl + encodeURIComponent(file.name);
+                        modal.classList.add('active');
+                    });
+                } else {
+                    item.addEventListener('click', () => {
+                        window.open(repoUrl + encodeURIComponent(file.name), '_blank');
+                    });
+                }
+                
+                gallery.appendChild(item);
+            });
+        }
+
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                renderGallery(e.target.dataset.filter);
+            });
+        });
+
+        modalClose.addEventListener('click', () => {
+            modal.classList.remove('active');
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('active');
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                modal.classList.remove('active');
+            }
+        });
+
+        renderGallery();
+    </script>
+</body>
+</html>
