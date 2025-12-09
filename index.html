@@ -88,42 +88,6 @@
             font-weight: bold;
         }
 
-        .filter-controls {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-            flex-wrap: wrap;
-            margin-bottom: 40px;
-        }
-
-        .filter-btn {
-            padding: 14px 28px;
-            background: rgba(255, 255, 255, 0.08);
-            border: 2px solid rgba(167, 139, 250, 0.3);
-            border-radius: 30px;
-            cursor: pointer;
-            font-size: 15px;
-            transition: all 0.3s ease;
-            color: white;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .filter-btn:hover {
-            transform: translateY(-3px);
-            background: rgba(167, 139, 250, 0.2);
-            border-color: rgba(167, 139, 250, 0.6);
-            box-shadow: 0 6px 20px rgba(167, 139, 250, 0.4);
-        }
-
-        .filter-btn.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #fff;
-            border-color: transparent;
-            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5);
-        }
-
         .gallery {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -245,18 +209,25 @@
             letter-spacing: 1px;
         }
 
-        .vote-btn:hover {
+        .vote-btn:hover:not(:disabled) {
             transform: scale(1.05);
             box-shadow: 0 6px 25px rgba(102, 126, 234, 0.6);
         }
 
-        .vote-btn:active {
+        .vote-btn:active:not(:disabled) {
             transform: scale(0.95);
         }
 
-        .vote-btn.voted {
+        .vote-btn:disabled {
             background: rgba(167, 139, 250, 0.3);
             cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            color: white;
+            padding: 40px;
+            font-size: 1.2em;
         }
 
         .modal {
@@ -343,8 +314,8 @@
             <h1>⛈️ Colorado Severe Weather Network</h1>
             <p class="subtitle">🗳️ Vote for Your Favorite Logo!</p>
             <p class="description">
-                Help us choose the official logo for the Colorado Severe Weather Network. 
-                Click on any logo to view it full-size, then vote for your favorite. 
+                Help us choose the official logo for the Colorado Severe Weather Network.
+                Click on any logo to view it full-size, then vote for your favorite.
                 The logos are automatically ranked by votes - the most popular rises to the top!
             </p>
         </header>
@@ -364,11 +335,9 @@
             </div>
         </div>
 
-        <div class="filter-controls">
-            <button class="filter-btn" data-filter="cswn">⛈️ CSWN Logos</button>
+        <div class="gallery" id="gallery">
+            <div class="loading">Loading logos...</div>
         </div>
-
-        <div class="gallery" id="gallery"></div>
 
         <footer>
             <p style="font-size: 1.2em; margin-bottom: 10px;">⚡ Colorado Severe Weather Network Toolkit</p>
@@ -389,8 +358,11 @@
     </div>
 
     <script>
+        // CONFIGURATION - Replace with your Google Apps Script Web App URL
+        const API_URL = 'https://script.google.com/macros/s/AKfycbx47_erkUIILhEsaigV5_LC4y7LyzTVGBUw28kWBwI202ZgPQQEJJ2m9Zm1XDZRHp5l/exec';
+
         const baseUrl = 'https://raw.githubusercontent.com/W5ALC/Colorado-Severe-Weather/main/';
-        
+
         const logos = [
             { id: 1, name: 'K0BF-logo.jpg', type: 'cswn', votes: 0 },
             { id: 2, name: 'KF0MLS-Logo-1.jpg', type: 'cswn', votes: 0 },
@@ -416,50 +388,77 @@
         ];
 
         let userVotedIds = new Set();
-        let currentFilter = 'all';
 
-        // Load data from storage
-        async function loadData() {
+        // Get or create user ID
+        function getUserId() {
+            let userId = localStorage.getItem('votingUserId');
+            if (!userId) {
+                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('votingUserId', userId);
+            }
+            return userId;
+        }
+
+        // Load votes from server
+        async function loadVotes() {
             try {
-                const votesResult = await window.storage.get('logo-votes', true);
-                if (votesResult) {
-                    const votesData = JSON.parse(votesResult.value);
+                const response = await fetch(API_URL + '?action=getVotes');
+                const data = await response.json();
+
+                if (data.votes) {
                     logos.forEach(logo => {
-                        logo.votes = votesData[logo.id] || 0;
+                        logo.votes = data.votes[logo.id] || 0;
                     });
                 }
 
-                const userVotesResult = await window.storage.get('user-votes');
-                if (userVotesResult) {
-                    userVotedIds = new Set(JSON.parse(userVotesResult.value));
+                if (data.userVotes) {
+                    userVotedIds = new Set(data.userVotes);
                 }
+
+                renderGallery();
             } catch (error) {
-                console.log('No existing votes found, starting fresh');
+                console.error('Error loading votes:', error);
+                document.getElementById('gallery').innerHTML =
+                    '<div class="loading" style="color: #ff6b6b;">Error loading votes. Please refresh the page.</div>';
             }
         }
 
-        // Save data to storage
-        async function saveData() {
-            const votesData = {};
-            logos.forEach(logo => {
-                votesData[logo.id] = logo.votes;
-            });
-
+        // Submit vote to server
+        async function submitVote(logoId) {
             try {
-                await window.storage.set('logo-votes', JSON.stringify(votesData), true);
-                await window.storage.set('user-votes', JSON.stringify([...userVotedIds]));
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'vote',
+                        userId: getUserId(),
+                        logoId: logoId
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    const logo = logos.find(l => l.id === logoId);
+                    if (logo) logo.votes++;
+                    userVotedIds.add(logoId);
+                    renderGallery();
+                } else {
+                    alert(data.message || 'Error submitting vote');
+                }
             } catch (error) {
-                console.error('Error saving votes:', error);
+                console.error('Error submitting vote:', error);
+                alert('Error submitting vote. Please try again.');
             }
         }
 
         function updateStats() {
             const totalVotes = logos.reduce((sum, logo) => sum + logo.votes, 0);
             const userVoteCount = userVotedIds.size;
-            
+
             const sortedLogos = [...logos].sort((a, b) => b.votes - a.votes);
-            const leader = sortedLogos[0].votes > 0 
-                ? sortedLogos[0].name.split('.')[0].substring(0, 20) 
+            const leader = sortedLogos[0].votes > 0
+                ? sortedLogos[0].name.split('.')[0].substring(0, 20)
                 : '-';
 
             document.getElementById('totalVotes').textContent = totalVotes;
@@ -470,14 +469,14 @@
         function createGalleryItem(logo, rank) {
             const item = document.createElement('div');
             item.className = 'gallery-item';
-            
+
             let rankBadgeClass = '';
             if (rank === 1) rankBadgeClass = 'gold';
             else if (rank === 2) rankBadgeClass = 'silver';
             else if (rank === 3) rankBadgeClass = 'bronze';
 
             const hasVoted = userVotedIds.has(logo.id);
-            
+
             item.innerHTML = `
                 ${logo.votes > 0 ? `<div class="rank-badge ${rankBadgeClass}">#${rank}</div>` : ''}
                 <div class="image-wrapper">
@@ -490,13 +489,13 @@
                             <span>👍</span>
                             <span>${logo.votes}</span>
                         </div>
-                        <button class="vote-btn ${hasVoted ? 'voted' : ''}" data-id="${logo.id}">
+                        <button class="vote-btn" ${hasVoted ? 'disabled' : ''} data-id="${logo.id}">
                             ${hasVoted ? '✓ Voted' : 'Vote'}
                         </button>
                     </div>
                 </div>
             `;
-            
+
             const imageWrapper = item.querySelector('.image-wrapper');
             imageWrapper.addEventListener('click', () => {
                 document.getElementById('modalImg').src = baseUrl + encodeURIComponent(logo.name);
@@ -504,45 +503,27 @@
             });
 
             const voteBtn = item.querySelector('.vote-btn');
-            voteBtn.addEventListener('click', async () => {
-                if (!userVotedIds.has(logo.id)) {
-                    logo.votes++;
-                    userVotedIds.add(logo.id);
-                    await saveData();
-                    renderGallery(currentFilter);
+            voteBtn.addEventListener('click', () => {
+                if (!hasVoted) {
+                    submitVote(logo.id);
                 }
             });
-            
+
             return item;
         }
 
-        function renderGallery(filter = 'all') {
-            currentFilter = filter;
+        function renderGallery() {
             const gallery = document.getElementById('gallery');
             gallery.innerHTML = '';
-            
-            let filteredLogos = filter === 'all' 
-                ? logos 
-                : logos.filter(logo => logo.type === filter);
-            
-            // Sort by votes (descending)
-            filteredLogos.sort((a, b) => b.votes - a.votes);
-            
-            filteredLogos.forEach((logo, index) => {
+
+            const sortedLogos = [...logos].sort((a, b) => b.votes - a.votes);
+
+            sortedLogos.forEach((logo, index) => {
                 gallery.appendChild(createGalleryItem(logo, index + 1));
             });
-            
+
             updateStats();
         }
-
-        // Filter buttons
-        document.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-                e.target.classList.add('active');
-                renderGallery(e.target.dataset.filter);
-            });
-        });
 
         // Modal controls
         document.getElementById('modalClose').addEventListener('click', () => {
@@ -561,11 +542,11 @@
             }
         });
 
+        // Auto-refresh votes every 30 seconds
+        setInterval(loadVotes, 30000);
+
         // Initialize
-        (async () => {
-            await loadData();
-            renderGallery();
-        })();
+        loadVotes();
     </script>
 </body>
 </html>
