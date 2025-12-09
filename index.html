@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Colorado Severe Weather Network - File Browser</title>
+    <title>Colorado Severe Weather Network - Logo Vote</title>
     <style>
         * {
             margin: 0;
@@ -19,14 +19,14 @@
         }
 
         .container {
-            max-width: 1600px;
+            max-width: 1400px;
             margin: 0 auto;
         }
 
         header {
             text-align: center;
             color: white;
-            margin-bottom: 50px;
+            margin-bottom: 40px;
             padding: 40px;
             background: rgba(255, 255, 255, 0.05);
             backdrop-filter: blur(15px);
@@ -36,7 +36,7 @@
         }
 
         h1 {
-            font-size: 3.2em;
+            font-size: 3em;
             margin-bottom: 20px;
             text-shadow: 3px 3px 6px rgba(0,0,0,0.5);
             background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
@@ -47,9 +47,8 @@
 
         .subtitle {
             font-size: 1.4em;
-            opacity: 0.95;
             color: #a78bfa;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
         }
 
         .description {
@@ -57,10 +56,36 @@
             font-size: 1.1em;
             opacity: 0.85;
             color: #e0e0e0;
-            max-width: 900px;
-            margin-left: auto;
-            margin-right: auto;
             line-height: 1.6;
+        }
+
+        .voting-stats {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+        }
+
+        .stat-box {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 20px 40px;
+            border-radius: 15px;
+            border: 2px solid rgba(167, 139, 250, 0.3);
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #a78bfa;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            color: white;
+            font-weight: bold;
         }
 
         .filter-controls {
@@ -99,24 +124,6 @@
             box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5);
         }
 
-        .stats {
-            text-align: center;
-            color: #a78bfa;
-            margin-bottom: 40px;
-            font-size: 1.2em;
-            font-weight: 600;
-        }
-
-        .section-title {
-            font-size: 2em;
-            color: #a78bfa;
-            margin: 50px 0 30px 0;
-            text-align: center;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
         .gallery {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -130,7 +137,6 @@
             overflow: hidden;
             border: 2px solid rgba(167, 139, 250, 0.2);
             transition: all 0.4s ease;
-            cursor: pointer;
             position: relative;
         }
 
@@ -139,6 +145,37 @@
             border-color: rgba(167, 139, 250, 0.7);
             box-shadow: 0 12px 40px rgba(167, 139, 250, 0.4);
             background: rgba(255, 255, 255, 0.1);
+        }
+
+        .rank-badge {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            font-weight: bold;
+            z-index: 10;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            border: 3px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .rank-badge.gold {
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+        }
+
+        .rank-badge.silver {
+            background: linear-gradient(135deg, #C0C0C0 0%, #A8A8A8 100%);
+        }
+
+        .rank-badge.bronze {
+            background: linear-gradient(135deg, #CD7F32 0%, #B87333 100%);
         }
 
         .image-wrapper {
@@ -150,6 +187,7 @@
             align-items: center;
             justify-content: center;
             position: relative;
+            cursor: pointer;
         }
 
         .gallery-item img {
@@ -161,11 +199,6 @@
 
         .gallery-item:hover img {
             transform: scale(1.15);
-        }
-
-        .file-icon {
-            font-size: 90px;
-            opacity: 0.4;
         }
 
         .item-info {
@@ -181,37 +214,49 @@
             line-height: 1.4;
         }
 
-        .item-meta {
+        .vote-section {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            gap: 10px;
+            gap: 15px;
+            margin-top: 15px;
         }
 
-        .item-type {
-            font-size: 13px;
+        .vote-count {
+            font-size: 1.8em;
             color: #a78bfa;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .vote-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
             text-transform: uppercase;
-            font-weight: 700;
             letter-spacing: 1px;
         }
 
-        .download-btn {
-            background: rgba(167, 139, 250, 0.25);
-            border: 2px solid rgba(167, 139, 250, 0.5);
-            color: #f0e7ff;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 12px;
-            text-decoration: none;
-            transition: all 0.3s;
-            font-weight: 600;
+        .vote-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.6);
         }
 
-        .download-btn:hover {
-            background: rgba(167, 139, 250, 0.5);
-            border-color: #a78bfa;
-            transform: scale(1.05);
+        .vote-btn:active {
+            transform: scale(0.95);
+        }
+
+        .vote-btn.voted {
+            background: rgba(167, 139, 250, 0.3);
+            cursor: not-allowed;
         }
 
         .modal {
@@ -269,10 +314,6 @@
             border-color: #a78bfa;
         }
 
-        .hidden {
-            display: none;
-        }
-
         footer {
             text-align: center;
             padding: 40px;
@@ -294,38 +335,40 @@
             color: #c4b5fd;
             text-decoration: underline;
         }
-
-        .badge {
-            display: inline-block;
-            padding: 4px 10px;
-            background: rgba(167, 139, 250, 0.2);
-            border-radius: 12px;
-            font-size: 11px;
-            color: #a78bfa;
-            font-weight: 700;
-            margin-left: 8px;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>⛈️ Colorado Severe Weather Network</h1>
-            <p class="subtitle">🎨 Logo Proposals Gallery</p>
+            <p class="subtitle">🗳️ Vote for Your Favorite Logo!</p>
             <p class="description">
-                Browse the collection of logo designs and branding concepts for the Colorado Severe Weather Network Toolkit - 
-                featuring various color schemes, layouts, and design variations for the CSWN and Pueblo ARES organizations.
+                Help us choose the official logo for the Colorado Severe Weather Network. 
+                Click on any logo to view it full-size, then vote for your favorite. 
+                The logos are automatically ranked by votes - the most popular rises to the top!
             </p>
         </header>
 
+        <div class="voting-stats">
+            <div class="stat-box">
+                <div class="stat-label">Total Votes</div>
+                <div class="stat-value" id="totalVotes">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Your Votes</div>
+                <div class="stat-value" id="userVotes">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Current Leader</div>
+                <div class="stat-value" id="leader">-</div>
+            </div>
+        </div>
+
         <div class="filter-controls">
-            <button class="filter-btn active" data-filter="all">🎨 All Logos</button>
             <button class="filter-btn" data-filter="cswn">⛈️ CSWN Logos</button>
         </div>
 
-        <div class="stats" id="stats"></div>
-
-        <div id="content"></div>
+        <div class="gallery" id="gallery"></div>
 
         <footer>
             <p style="font-size: 1.2em; margin-bottom: 10px;">⚡ Colorado Severe Weather Network Toolkit</p>
@@ -347,157 +390,152 @@
 
     <script>
         const baseUrl = 'https://raw.githubusercontent.com/W5ALC/Colorado-Severe-Weather/main/';
-        const repoUrl = 'https://github.com/W5ALC/Colorado-Severe-Weather/blob/main/';
         
-        const files = [
-            // CSWN Logo Proposals
-            { name: 'CSWN-logo-amateur-CB.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-amateur-CBR.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-amateur-CBy.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-amateur.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-amateurRY.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-blue.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-C.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-CB.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-CBB.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-CBR.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-CBY.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-ham.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo-hamRY.jpg', type: 'cswn', ext: 'jpg' },
-            { name: 'CSWN-logo.jpg', type: 'cswn', ext: 'jpg' },
-            
-            // Skywarn Logos
-            { name: 'Skywarn-CSWN.png', type: 'skywarn', ext: 'png' },
-            { name: 'Skywarn-Orig.png', type: 'skywarn', ext: 'png' },
-            { name: 'Skywarn-cyan.png', type: 'skywarn', ext: 'png' },
-            { name: 'Skywarn-desat.png', type: 'skywarn', ext: 'png' },
-            { name: 'Skywarn.png', type: 'skywarn', ext: 'png' },
-       ];
+        const logos = [
+            { id: 1, name: 'K0BF-logo.jpg', type: 'cswn', votes: 0 },
+            { id: 2, name: 'KF0MLS-Logo-1.jpg', type: 'cswn', votes: 0 },
+            { id: 3, name: 'KF0MLS-logo-2.jpg', type: 'cswn', votes: 0 },
+            { id: 4, name: 'KF0MLS-logo-3.jpg', type: 'cswn', votes: 0 },
+            { id: 5, name: 'KF0MLS-logo-4.jpg', type: 'cswn', votes: 0 },
+            { id: 6, name: 'KF0MLS-logo-5.jpg', type: 'cswn', votes: 0 },
+            { id: 7, name: 'KF0MLS-logo-6.jpg', type: 'cswn', votes: 0 },
+            { id: 8, name: 'CSWN-logo-amateur-CB.jpg', type: 'cswn', votes: 0 },
+            { id: 9, name: 'CSWN-logo-amateur-CBR.jpg', type: 'cswn', votes: 0 },
+            { id: 10, name: 'CSWN-logo-amateur-CBy.jpg', type: 'cswn', votes: 0 },
+            { id: 11, name: 'CSWN-logo-amateur.jpg', type: 'cswn', votes: 0 },
+            { id: 12, name: 'CSWN-logo-amateurRY.jpg', type: 'cswn', votes: 0 },
+            { id: 13, name: 'CSWN-logo-blue.jpg', type: 'cswn', votes: 0 },
+            { id: 14, name: 'CSWN-logo-ham-C.jpg', type: 'cswn', votes: 0 },
+            { id: 15, name: 'CSWN-logo-ham-CB.jpg', type: 'cswn', votes: 0 },
+            { id: 16, name: 'CSWN-logo-ham-CBB.jpg', type: 'cswn', votes: 0 },
+            { id: 17, name: 'CSWN-logo-ham-CBR.jpg', type: 'cswn', votes: 0 },
+            { id: 18, name: 'CSWN-logo-ham-CBY.jpg', type: 'cswn', votes: 0 },
+            { id: 19, name: 'CSWN-logo-ham.jpg', type: 'cswn', votes: 0 },
+            { id: 20, name: 'CSWN-logo-hamRY.jpg', type: 'cswn', votes: 0 },
+            { id: 21, name: 'CSWN-logo.jpg', type: 'cswn', votes: 0 }
+        ];
 
-        const content = document.getElementById('content');
-        const modal = document.getElementById('modal');
-        const modalImg = document.getElementById('modalImg');
-        const modalClose = document.getElementById('modalClose');
-        const stats = document.getElementById('stats');
+        let userVotedIds = new Set();
+        let currentFilter = 'all';
 
-        const fileIcons = {
-            'png': '🖼️',
-            'jpg': '🖼️',
-            'svg': '🎨',
-            'py': '🐍',
-            'mkv': '🎬',
-            'exe': '⚙️',
-            'ico': '🎨',
-            'md': '📄',
-            'html': '🌐'
-        };
+        // Load data from storage
+        async function loadData() {
+            try {
+                const votesResult = await window.storage.get('logo-votes', true);
+                if (votesResult) {
+                    const votesData = JSON.parse(votesResult.value);
+                    logos.forEach(logo => {
+                        logo.votes = votesData[logo.id] || 0;
+                    });
+                }
 
-        const categoryTitles = {
-            'cswn': '⛈️ Colorado Severe Weather Network Logos',
-            'skywarn': '🌪️ Skywarn Logo Variations',
-        };
-
-        function updateStats(filter) {
-            const filteredFiles = filter === 'all' ? files : files.filter(f => f.type === filter);
-            stats.textContent = `Displaying ${filteredFiles.length} of ${files.length} files`;
+                const userVotesResult = await window.storage.get('user-votes');
+                if (userVotesResult) {
+                    userVotedIds = new Set(JSON.parse(userVotesResult.value));
+                }
+            } catch (error) {
+                console.log('No existing votes found, starting fresh');
+            }
         }
 
-        function createGalleryItem(file) {
+        // Save data to storage
+        async function saveData() {
+            const votesData = {};
+            logos.forEach(logo => {
+                votesData[logo.id] = logo.votes;
+            });
+
+            try {
+                await window.storage.set('logo-votes', JSON.stringify(votesData), true);
+                await window.storage.set('user-votes', JSON.stringify([...userVotedIds]));
+            } catch (error) {
+                console.error('Error saving votes:', error);
+            }
+        }
+
+        function updateStats() {
+            const totalVotes = logos.reduce((sum, logo) => sum + logo.votes, 0);
+            const userVoteCount = userVotedIds.size;
+            
+            const sortedLogos = [...logos].sort((a, b) => b.votes - a.votes);
+            const leader = sortedLogos[0].votes > 0 
+                ? sortedLogos[0].name.split('.')[0].substring(0, 20) 
+                : '-';
+
+            document.getElementById('totalVotes').textContent = totalVotes;
+            document.getElementById('userVotes').textContent = userVoteCount;
+            document.getElementById('leader').textContent = leader;
+        }
+
+        function createGalleryItem(logo, rank) {
             const item = document.createElement('div');
             item.className = 'gallery-item';
             
-            const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(file.ext);
+            let rankBadgeClass = '';
+            if (rank === 1) rankBadgeClass = 'gold';
+            else if (rank === 2) rankBadgeClass = 'silver';
+            else if (rank === 3) rankBadgeClass = 'bronze';
+
+            const hasVoted = userVotedIds.has(logo.id);
             
             item.innerHTML = `
+                ${logo.votes > 0 ? `<div class="rank-badge ${rankBadgeClass}">#${rank}</div>` : ''}
                 <div class="image-wrapper">
-                    ${isImage 
-                        ? `<img src="${baseUrl}${encodeURIComponent(file.name)}" alt="${file.name}" loading="lazy">`
-                        : `<div class="file-icon">${fileIcons[file.ext] || '📄'}</div>`
-                    }
+                    <img src="${baseUrl}${encodeURIComponent(logo.name)}" alt="${logo.name}" loading="lazy">
                 </div>
                 <div class="item-info">
-                    <div class="item-title">${file.name}</div>
-                    <div class="item-meta">
-                        <span class="item-type">${fileIcons[file.ext]} ${file.ext.toUpperCase()}</span>
-                        <a href="${repoUrl}${encodeURIComponent(file.name)}" 
-                           class="download-btn" 
-                           target="_blank" 
-                           onclick="event.stopPropagation()">View</a>
+                    <div class="item-title">${logo.name}</div>
+                    <div class="vote-section">
+                        <div class="vote-count">
+                            <span>👍</span>
+                            <span>${logo.votes}</span>
+                        </div>
+                        <button class="vote-btn ${hasVoted ? 'voted' : ''}" data-id="${logo.id}">
+                            ${hasVoted ? '✓ Voted' : 'Vote'}
+                        </button>
                     </div>
                 </div>
             `;
             
-            if (isImage) {
-                item.addEventListener('click', () => {
-                    modalImg.src = baseUrl + encodeURIComponent(file.name);
-                    modal.classList.add('active');
-                });
-            } else {
-                item.addEventListener('click', () => {
-                    window.open(repoUrl + encodeURIComponent(file.name), '_blank');
-                });
-            }
+            const imageWrapper = item.querySelector('.image-wrapper');
+            imageWrapper.addEventListener('click', () => {
+                document.getElementById('modalImg').src = baseUrl + encodeURIComponent(logo.name);
+                document.getElementById('modal').classList.add('active');
+            });
+
+            const voteBtn = item.querySelector('.vote-btn');
+            voteBtn.addEventListener('click', async () => {
+                if (!userVotedIds.has(logo.id)) {
+                    logo.votes++;
+                    userVotedIds.add(logo.id);
+                    await saveData();
+                    renderGallery(currentFilter);
+                }
+            });
             
             return item;
         }
 
         function renderGallery(filter = 'all') {
-            content.innerHTML = '';
+            currentFilter = filter;
+            const gallery = document.getElementById('gallery');
+            gallery.innerHTML = '';
             
-            if (filter === 'all') {
-                const categories = ['cswn', 'skywarn', 'pueblo', 'other'];
-                categories.forEach(category => {
-                    const categoryFiles = files.filter(f => f.type === category);
-                    if (categoryFiles.length > 0) {
-                        const section = document.createElement('div');
-                        const title = document.createElement('h2');
-                        title.className = 'section-title';
-                        title.textContent = categoryTitles[category];
-                        
-                        const badge = document.createElement('span');
-                        badge.className = 'badge';
-                        badge.textContent = `${categoryFiles.length} files`;
-                        title.appendChild(badge);
-                        
-                        section.appendChild(title);
-                        
-                        const gallery = document.createElement('div');
-                        gallery.className = 'gallery';
-                        
-                        categoryFiles.forEach(file => {
-                            gallery.appendChild(createGalleryItem(file));
-                        });
-                        
-                        section.appendChild(gallery);
-                        content.appendChild(section);
-                    }
-                });
-            } else {
-                const title = document.createElement('h2');
-                title.className = 'section-title';
-                title.textContent = categoryTitles[filter];
-                
-                const filteredFiles = files.filter(f => f.type === filter);
-                const badge = document.createElement('span');
-                badge.className = 'badge';
-                badge.textContent = `${filteredFiles.length} files`;
-                title.appendChild(badge);
-                
-                content.appendChild(title);
-                
-                const gallery = document.createElement('div');
-                gallery.className = 'gallery';
-                
-                filteredFiles.forEach(file => {
-                    gallery.appendChild(createGalleryItem(file));
-                });
-                
-                content.appendChild(gallery);
-            }
+            let filteredLogos = filter === 'all' 
+                ? logos 
+                : logos.filter(logo => logo.type === filter);
             
-            updateStats(filter);
+            // Sort by votes (descending)
+            filteredLogos.sort((a, b) => b.votes - a.votes);
+            
+            filteredLogos.forEach((logo, index) => {
+                gallery.appendChild(createGalleryItem(logo, index + 1));
+            });
+            
+            updateStats();
         }
 
+        // Filter buttons
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -506,23 +544,28 @@
             });
         });
 
-        modalClose.addEventListener('click', () => {
-            modal.classList.remove('active');
+        // Modal controls
+        document.getElementById('modalClose').addEventListener('click', () => {
+            document.getElementById('modal').classList.remove('active');
         });
 
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.classList.remove('active');
+        document.getElementById('modal').addEventListener('click', (e) => {
+            if (e.target.id === 'modal') {
+                document.getElementById('modal').classList.remove('active');
             }
         });
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                modal.classList.remove('active');
+                document.getElementById('modal').classList.remove('active');
             }
         });
 
-        renderGallery();
+        // Initialize
+        (async () => {
+            await loadData();
+            renderGallery();
+        })();
     </script>
 </body>
 </html>
