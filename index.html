@@ -13,7 +13,7 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            background: linear-gradient(135deg, #000000 0%, #302b63 50%, #667 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -311,20 +311,18 @@
     <div class="container">
         <header>
             <h1>⛈️ Colorado Severe Weather Network</h1>
-            <p class="subtitle">🌪️ Toolkit File Repository</p>
+            <p class="subtitle">🎨 Logo Proposals Gallery</p>
             <p class="description">
-                Comprehensive collection of screenshots, Python scripts, and resources for the CSWN Toolkit - 
-                A powerful severe weather monitoring application designed for Colorado storm spotters, 
-                meteorologists, and weather enthusiasts.
+                Browse the collection of logo designs and branding concepts for the Colorado Severe Weather Network Toolkit - 
+                featuring various color schemes, layouts, and design variations for the CSWN and Pueblo ARES organizations.
             </p>
         </header>
 
         <div class="filter-controls">
-            <button class="filter-btn active" data-filter="all">📁 All Files</button>
-            <button class="filter-btn" data-filter="screenshots">📸 Screenshots</button>
-            <button class="filter-btn" data-filter="logos">🎨 Logo Proposals</button>
-            <button class="filter-btn" data-filter="python">🐍 Python Scripts</button>
-            <button class="filter-btn" data-filter="media">🎬 Media</button>
+            <button class="filter-btn active" data-filter="all">🎨 All Logos</button>
+            <button class="filter-btn" data-filter="cswn">⛈️ CSWN Logos</button>
+            <button class="filter-btn" data-filter="skywarn">🌪️ Skywarn Logos</button>
+            <button class="filter-btn" data-filter="pueblo">📡 Pueblo ARES</button>
             <button class="filter-btn" data-filter="other">📦 Other</button>
         </div>
 
@@ -355,74 +353,29 @@
         const repoUrl = 'https://github.com/W5ALC/Colorado-Severe-Weather/blob/main/';
         
         const files = [
-            // Screenshots
-            { name: 'CSWN-AFD.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-CO-Alert.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-GEOS.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-GOES-load.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-GOES-zoom.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-GOES.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-HWO.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-METED.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-Main-Dark.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-Main.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-SPC-1.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-SPC-Browser.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-SPC.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-Weather.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-alert-none.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN-toolkit.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWN.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWO-BOU-NWS.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWO-CYS-NWS.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWO-Checkins.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWO-Closing.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWO-GJT-NWS.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWO-GLD-NWS.png', type: 'screenshots', ext: 'png' },
-            { name: 'CSWO-PUB-NWS.png', type: 'screenshots', ext: 'png' },
-            { name: 'GOES-19-zoom.png', type: 'screenshots', ext: 'png' },
+            // CSWN Logo Proposals
+            { name: 'CSWN-logo-amateur-CB.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-amateur-CBR.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-amateur-CBy.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-amateur.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-amateurRY.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-blue.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-ham-C.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-ham-CB.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-ham-CBB.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-ham-CBR.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-ham-CBY.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-ham.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo-hamRY.jpg', type: 'cswn', ext: 'jpg' },
+            { name: 'CSWN-logo.jpg', type: 'cswn', ext: 'jpg' },
             
-            // Logo Proposals
-            { name: 'CSWN-KD0ZA.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-amateur-CB.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-amateur-CBR.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-amateur-CBy.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-amateur.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-amateurRY.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-blue.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-C.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-CB.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-CBB.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-CBR.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-ham-CBY.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-ham.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo-hamRY.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'CSWN-logo.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'Pueblo-ARES-logo-US-CO-FLAG-new.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'Pueblo-ARES-logo-US-CO-FLAG.jpg', type: 'logos', ext: 'jpg' },
-            { name: 'Skywarn-CSWN.png', type: 'logos', ext: 'png' },
-            { name: 'Skywarn-Orig.png', type: 'logos', ext: 'png' },
-            { name: 'Skywarn-cyan.png', type: 'logos', ext: 'png' },
-            { name: 'Skywarn-desat.png', type: 'logos', ext: 'png' },
-            { name: 'Skywarn.png', type: 'logos', ext: 'png' },
-            
-            // Python Scripts
-            { name: 'CSWN-toolkit.py', type: 'python', ext: 'py' },
-            { name: 'Colorado-SWN.py', type: 'python', ext: 'py' },
-            { name: 'Colorado-Severe-Weather.py', type: 'python', ext: 'py' },
-            { name: 'Severe-Weather-Network-expansion-W10.py', type: 'python', ext: 'py' },
-            { name: 'Severe-Weather-Network-net-script.py', type: 'python', ext: 'py' },
-            { name: 'Severe-Weather-Network-toolkit.py', type: 'python', ext: 'py' },
-            
-            // Media
-            { name: 'CSWO.mkv', type: 'media', ext: 'mkv' },
-            
-            // Other
-            { name: 'Colorado-SWN.exe', type: 'other', ext: 'exe' },
-            { name: 'colorado_severe_weather_rounded.ico', type: 'other', ext: 'ico' },
-            { name: 'README.md', type: 'other', ext: 'md' },
-            { name: 'index.html', type: 'other', ext: 'html' }
-        ];
+            // Skywarn Logos
+            { name: 'Skywarn-CSWN.png', type: 'skywarn', ext: 'png' },
+            { name: 'Skywarn-Orig.png', type: 'skywarn', ext: 'png' },
+            { name: 'Skywarn-cyan.png', type: 'skywarn', ext: 'png' },
+            { name: 'Skywarn-desat.png', type: 'skywarn', ext: 'png' },
+            { name: 'Skywarn.png', type: 'skywarn', ext: 'png' },
+       ];
 
         const content = document.getElementById('content');
         const modal = document.getElementById('modal');
@@ -443,11 +396,10 @@
         };
 
         const categoryTitles = {
-            'screenshots': '📸 Application Screenshots',
-            'logos': '🎨 Logo Proposals & Branding',
-            'python': '🐍 Python Source Code',
-            'media': '🎬 Media Files',
-            'other': '📦 Additional Resources'
+            'cswn': '⛈️ Colorado Severe Weather Network Logos',
+            'skywarn': '🌪️ Skywarn Logo Variations',
+            'pueblo': '📡 Pueblo ARES Logos',
+            'other': '📦 Icons & Additional Assets'
         };
 
         function updateStats(filter) {
@@ -459,7 +411,7 @@
             const item = document.createElement('div');
             item.className = 'gallery-item';
             
-            const isImage = ['png', 'jpg', 'jpeg', 'gif'].includes(file.ext);
+            const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(file.ext);png', 'jpg', 'jpeg', 'gif'].includes(file.ext);
             
             item.innerHTML = `
                 <div class="image-wrapper">
@@ -498,7 +450,7 @@
             content.innerHTML = '';
             
             if (filter === 'all') {
-                const categories = ['screenshots', 'logos', 'python', 'media', 'other'];
+                const categories = ['cswn', 'skywarn', 'pueblo', 'other'];
                 categories.forEach(category => {
                     const categoryFiles = files.filter(f => f.type === category);
                     if (categoryFiles.length > 0) {
