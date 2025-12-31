@@ -600,7 +600,7 @@ jobs:
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow pyinstaller
+          pip install PyQt6 PyQt6-WebEngine requests beautifulsoup4 pillow pyinstaller pytz
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: 🏗️ Build Application
