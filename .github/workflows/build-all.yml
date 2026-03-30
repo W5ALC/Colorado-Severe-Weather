@@ -280,7 +280,7 @@ jobs:
   create-release:
     name: 🚀 Create Release
     runs-on: ubuntu-latest
-    needs: [build-windows, build-macos-intel, build-macos-arm64, build-linux]
+    needs: [build-windows, build-linux]
     permissions:
       contents: write
     steps:
@@ -326,10 +326,6 @@ jobs:
           - **Requirements**: Windows 10 or later
           - **Installation**: Extract and run
           
-          ### 🍎 macOS
-          - **File**: \`${APP_NAME}-${VERSION}-macos.dmg\`
-          - **Requirements**: macOS 10.15 (Catalina) or later
-          - **Installation**: Drag to Applications folder
           
           ### 🐧 Linux
           - **File**: \`${APP_NAME}-${VERSION}-linux.tar.gz\`
@@ -387,7 +383,6 @@ jobs:
           prerelease: false
           files: |
             artifacts/**/*.zip
-            artifacts/**/*.dmg
             artifacts/**/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -399,7 +394,6 @@ jobs:
           echo ""
           echo "📦 Packages created:"
           echo "  🪟 Windows: ${APP_NAME}-${VERSION}-windows.zip"
-          echo "  🍎 macOS:   ${APP_NAME}-${VERSION}-macos.dmg"  
           echo "  🐧 Linux:   ${APP_NAME}-${VERSION}-linux.tar.gz"
           echo ""
           echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/$VERSION"
